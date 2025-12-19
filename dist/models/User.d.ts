@@ -1,4 +1,15 @@
 import mongoose, { Document } from 'mongoose';
+export interface ISocialLink {
+    platform: 'instagram' | 'facebook' | 'twitter' | 'linkedin' | 'tiktok';
+    username: string;
+    url: string;
+    connected: boolean;
+    connectedAt?: Date;
+    profileId?: string;
+    accessToken?: string;
+    refreshToken?: string;
+    profilePhoto?: string;
+}
 export interface IUserDocument extends Document {
     email: string;
     password?: string;
@@ -45,6 +56,7 @@ export interface IUserDocument extends Document {
     };
     interests: string[];
     languages: string[];
+    socialLinks: ISocialLink[];
     verified: boolean;
     emailVerified: boolean;
     phoneVerified: boolean;
@@ -73,7 +85,17 @@ export interface IUserDocument extends Document {
     reportedBy: string[];
     isActive: boolean;
     lastSeen?: Date;
+    isProfileComplete: boolean;
+    profileCompletionPercentage: number;
+    missingProfileFields: string[];
+    age?: number;
     comparePassword(candidatePassword: string): Promise<boolean>;
+    getProfileCompletion(): {
+        isComplete: boolean;
+        percentage: number;
+        missingFields: string[];
+        completedFields: string[];
+    };
 }
 export declare const User: mongoose.Model<IUserDocument, {}, {}, {}, mongoose.Document<unknown, {}, IUserDocument, {}, mongoose.DefaultSchemaOptions> & IUserDocument & Required<{
     _id: mongoose.Types.ObjectId;

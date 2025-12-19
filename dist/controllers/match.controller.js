@@ -30,6 +30,30 @@ class MatchController {
             });
         }
     }
+    // src/controllers/match.controller.ts - Add this method
+    /**
+     * Get sent likes (users I have liked)
+     */
+    async getSentLikes(req, res) {
+        try {
+            const userId = req.user?.userId;
+            const likes = await match_service_1.default.getSentLikes(userId);
+            res.status(200).json({
+                success: true,
+                data: {
+                    likes,
+                    total: likes.length,
+                },
+            });
+        }
+        catch (error) {
+            logger_1.default.error('Get sent likes error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to fetch sent likes',
+            });
+        }
+    }
     /**
      * Like a user
      */

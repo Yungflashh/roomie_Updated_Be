@@ -22,6 +22,10 @@ declare class AuthController {
      */
     getMe(req: AuthRequest, res: Response): Promise<void>;
     /**
+     * Get profile completion status
+     */
+    getProfileCompletion(req: AuthRequest, res: Response): Promise<void>;
+    /**
      * Update FCM token
      */
     updateFcmToken(req: AuthRequest, res: Response): Promise<void>;

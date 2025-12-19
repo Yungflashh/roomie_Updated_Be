@@ -1,12 +1,21 @@
 import { Response } from 'express';
 import { AuthRequest } from '../types';
 declare class UserController {
+    /**
+      * Get user profile by ID (GET /users/:userId)
+      */
     getUserProfile(req: AuthRequest, res: Response): Promise<void>;
+    getMyProfile(req: AuthRequest, res: Response): Promise<void>;
+    getProfileCompletion(req: AuthRequest, res: Response): Promise<void>;
+    updateMyProfile(req: AuthRequest, res: Response): Promise<void>;
     updateProfile(req: AuthRequest, res: Response): Promise<void>;
     updatePreferences(req: AuthRequest, res: Response): Promise<void>;
     updateLifestyle(req: AuthRequest, res: Response): Promise<void>;
     updateLocation(req: AuthRequest, res: Response): Promise<void>;
     uploadProfilePhoto(req: AuthRequest, res: Response): Promise<void>;
+    /**
+     * Add photo to gallery
+     */
     addPhoto(req: AuthRequest, res: Response): Promise<void>;
     removePhoto(req: AuthRequest, res: Response): Promise<void>;
     blockUser(req: AuthRequest, res: Response): Promise<void>;

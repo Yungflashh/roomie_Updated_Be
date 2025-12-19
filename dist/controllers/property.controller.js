@@ -10,9 +10,35 @@ class PropertyController {
         try {
             const landlordId = req.user?.userId;
             const propertyData = {
-                ...req.body,
                 landlord: landlordId,
-                photos: req.uploadedPhotos || [],
+                title: req.body.title,
+                description: req.body.description,
+                type: req.body.type,
+                price: Number(req.body.price),
+                currency: req.body.currency || 'NGN',
+                address: req.body.address,
+                city: req.body.city,
+                state: req.body.state,
+                country: req.body.country || 'Nigeria',
+                zipCode: req.body.zipCode,
+                // Only include lat/lng if provided
+                ...(req.body.latitude && req.body.longitude && {
+                    latitude: Number(req.body.latitude),
+                    longitude: Number(req.body.longitude),
+                }),
+                photos: req.body.photos || req.uploadedPhotos || [],
+                videos: req.body.videos || [],
+                amenities: req.body.amenities || [],
+                bedrooms: Number(req.body.bedrooms),
+                bathrooms: Number(req.body.bathrooms),
+                squareFeet: req.body.squareFeet ? Number(req.body.squareFeet) : undefined,
+                availableFrom: req.body.availableFrom ? new Date(req.body.availableFrom) : new Date(),
+                leaseDuration: req.body.leaseDuration ? Number(req.body.leaseDuration) : 12,
+                petFriendly: req.body.petFriendly === true || req.body.petFriendly === 'true',
+                smokingAllowed: req.body.smokingAllowed === true || req.body.smokingAllowed === 'true',
+                utilitiesIncluded: req.body.utilitiesIncluded === true || req.body.utilitiesIncluded === 'true',
+                furnished: req.body.furnished === true || req.body.furnished === 'true',
+                parkingAvailable: req.body.parkingAvailable === true || req.body.parkingAvailable === 'true',
             };
             const property = await property_service_1.default.createProperty(propertyData);
             res.status(201).json({

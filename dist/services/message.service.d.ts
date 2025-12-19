@@ -6,9 +6,12 @@ interface SendMessageData {
     type: 'text' | 'image' | 'video' | 'audio' | 'file';
     content?: string;
     mediaUrl?: string;
-    mediaHash?: string;
-    thumbnailUrl?: string;
-    metadata?: any;
+    thumbnail?: string;
+    metadata?: {
+        duration?: number;
+        fileSize?: number;
+        fileName?: string;
+    };
 }
 declare class MessageService {
     /**

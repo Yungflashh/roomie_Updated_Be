@@ -9,25 +9,62 @@ declare class GameService {
      */
     getGameById(gameId: string): Promise<IGameDocument>;
     /**
-     * Create game session
+     * Send game invitation to a match
      */
-    createGameSession(gameId: string, userId: string): Promise<IGameSessionDocument>;
+    sendGameInvitation(gameId: string, inviterId: string, invitedUserId: string, matchId: string): Promise<IGameSessionDocument>;
     /**
-     * Join game session
+     * Respond to game invitation
      */
-    joinGameSession(sessionId: string, userId: string): Promise<IGameSessionDocument>;
+    respondToInvitation(sessionId: string, userId: string, accept: boolean): Promise<IGameSessionDocument>;
     /**
      * Start game session
      */
-    startGameSession(sessionId: string): Promise<IGameSessionDocument>;
+    startGameSession(sessionId: string, userId: string): Promise<IGameSessionDocument>;
     /**
-     * Submit game score
+     * Submit game answer (for trivia-type games)
      */
-    submitScore(sessionId: string, userId: string, score: number): Promise<IGameSessionDocument>;
+    submitAnswer(sessionId: string, userId: string, questionIndex: number, answer: string, timeSpent: number): Promise<{
+        correct: boolean;
+        correctAnswer: string;
+        points: number;
+    }>;
     /**
-     * Complete game session
+     * Submit all answers at once when player completes
+     */
+    submitAllAnswers(sessionId: string, userId: string, answers: Array<{
+        questionIndex: number;
+        answer: string;
+        timeSpent: number;
+    }>): Promise<{
+        score: number;
+        correctCount: number;
+        results: Array<{
+            questionIndex: number;
+            correct: boolean;
+            correctAnswer: string;
+            points: number;
+        }>;
+    }>;
+    /**
+     * Finalize game session when all players complete
+     */
+    private finalizeGameSession;
+    /**
+     * Complete game session (legacy - now just returns session status)
      */
     completeGameSession(sessionId: string): Promise<IGameSessionDocument>;
+    /**
+     * Get active game session for a match
+     */
+    getActiveGameSession(matchId: string): Promise<IGameSessionDocument | null>;
+    /**
+     * Get game session by ID
+     */
+    getGameSession(sessionId: string): Promise<IGameSessionDocument>;
+    /**
+     * Cancel game invitation
+     */
+    cancelInvitation(sessionId: string, userId: string): Promise<void>;
     /**
      * Get user game history
      */
@@ -39,6 +76,12 @@ declare class GameService {
      * Get game leaderboard
      */
     getGameLeaderboard(gameId: string, limit?: number): Promise<any[]>;
+    /**
+     * Generate game data based on game type
+     */
+    private generateGameData;
+    private scrambleWord;
+    private generateMathQuestion;
 }
 declare const _default: GameService;
 export default _default;

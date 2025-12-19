@@ -3,7 +3,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+// src/services/message.service.ts
 const models_1 = require("../models");
+const socket_config_1 = require("../config/socket.config");
+const notification_service_1 = __importDefault(require("./notification.service"));
 const logger_1 = __importDefault(require("../utils/logger"));
 const fs_1 = __importDefault(require("fs"));
 class MessageService {
@@ -11,7 +14,7 @@ class MessageService {
      * Send a message
      */
     async sendMessage(data) {
-        const { matchId, senderId, receiverId, type, content, mediaUrl, mediaHash, thumbnailUrl, metadata } = data;
+        const { matchId, senderId, receiverId, type, content, mediaUrl, thumbnail, metadata } = data;
         // Verify match exists and user is part of it
         const match = await models_1.Match.findOne({
             _id: matchId,
@@ -32,11 +35,14 @@ class MessageService {
             type,
             content,
             mediaUrl,
-            mediaHash,
-            thumbnailUrl,
-            metadata,
+            thumbnail,
+            duration: metadata?.duration,
+            fileSize: metadata?.fileSize,
+            fileName: metadata?.fileName,
             read: false,
         });
+        // Populate sender info
+        await message.populate('sender', 'firstName lastName profilePhoto');
         // Update match last message time and unread count
         const isUser1 = match.user1.toString() === senderId;
         const unreadField = isUser1 ? 'unreadCount.user2' : 'unreadCount.user1';
@@ -44,6 +50,23 @@ class MessageService {
             lastMessageAt: new Date(),
             $inc: { [unreadField]: 1 },
         });
+        // Emit real-time message via WebSocket
+        try {
+            (0, socket_config_1.emitNewMessage)(matchId, message.toObject(), senderId, receiverId);
+            // Get updated unread counts
+            const totalUnreadMessages = await this.getUnreadCount(receiverId);
+            const unreadNotifications = await notification_service_1.default.getUnreadCount(receiverId);
+            (0, socket_config_1.emitUnreadUpdate)(receiverId, {
+                messages: totalUnreadMessages,
+                notifications: unreadNotifications,
+                requests: 0,
+            });
+        }
+        catch (socketError) {
+            logger_1.default.warn('Socket emit failed (user may be offline):', socketError);
+        }
+        // Create notification
+        await notification_service_1.default.notifyNewMessage(senderId, receiverId, content || `Sent a ${type}`);
         logger_1.default.info(`Message sent: ${senderId} -> ${receiverId}`);
         return message;
     }
@@ -51,7 +74,6 @@ class MessageService {
      * Get messages for a match
      */
     async getMessages(matchId, userId, page = 1, limit = 50) {
-        // Verify user is part of match
         const match = await models_1.Match.findOne({
             _id: matchId,
             $or: [{ user1: userId }, { user2: userId }],
@@ -73,7 +95,7 @@ class MessageService {
             deleted: false,
         });
         return {
-            messages: messages.reverse(), // Oldest first
+            messages: messages.reverse(),
             pagination: {
                 page,
                 limit,
@@ -94,7 +116,6 @@ class MessageService {
             read: true,
             readAt: new Date(),
         });
-        // Reset unread count
         const match = await models_1.Match.findById(matchId);
         if (match) {
             const isUser1 = match.user1.toString() === userId;
@@ -118,7 +139,6 @@ class MessageService {
         }
         message.deleted = true;
         await message.save();
-        // Delete media file if exists
         if (message.mediaUrl) {
             const filePath = `./public${message.mediaUrl}`;
             if (fs_1.default.existsSync(filePath)) {
@@ -132,7 +152,7 @@ class MessageService {
      */
     async addReaction(messageId, userId, emoji) {
         await models_1.Message.findByIdAndUpdate(messageId, {
-            $pull: { reactions: { user: userId } }, // Remove existing reaction
+            $pull: { reactions: { user: userId } },
         });
         await models_1.Message.findByIdAndUpdate(messageId, {
             $push: {
@@ -166,7 +186,6 @@ class MessageService {
      * Search messages
      */
     async searchMessages(matchId, userId, query) {
-        // Verify user is part of match
         const match = await models_1.Match.findOne({
             _id: matchId,
             $or: [{ user1: userId }, { user2: userId }],

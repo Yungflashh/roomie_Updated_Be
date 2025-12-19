@@ -3,23 +3,58 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+// src/services/auth.service.ts
 const models_1 = require("../models");
 const jwt_1 = require("../utils/jwt");
 const logger_1 = __importDefault(require("../utils/logger"));
 class AuthService {
+    /**
+     * Helper to format user response with profile completion
+     */
+    formatUserResponse(user) {
+        const profileCompletion = user.getProfileCompletion();
+        return {
+            id: user._id.toString(),
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            profilePhoto: user.profilePhoto,
+            photos: user.photos,
+            bio: user.bio,
+            occupation: user.occupation,
+            dateOfBirth: user.dateOfBirth,
+            gender: user.gender,
+            phoneNumber: user.phoneNumber,
+            location: user.location,
+            preferences: user.preferences,
+            lifestyle: user.lifestyle,
+            interests: user.interests,
+            languages: user.languages,
+            socialLinks: user.socialLinks,
+            verified: user.verified,
+            emailVerified: user.emailVerified,
+            subscription: user.subscription,
+            gamification: user.gamification,
+            // Profile completion
+            isProfileComplete: profileCompletion.isComplete,
+            profileCompletionPercentage: profileCompletion.percentage,
+            missingProfileFields: profileCompletion.missingFields,
+            age: user.age,
+        };
+    }
     /**
      * Register new user
      */
     async register(data) {
         const { email, password, firstName, lastName, dateOfBirth, gender } = data;
         // Check if user exists
-        const existingUser = await models_1.User.findOne({ email });
+        const existingUser = await models_1.User.findOne({ email: email.toLowerCase() });
         if (existingUser) {
             throw new Error('User with this email already exists');
         }
         // Create user
         const user = await models_1.User.create({
-            email,
+            email: email.toLowerCase(),
             password,
             firstName,
             lastName,
@@ -41,15 +76,7 @@ class AuthService {
         await user.save();
         logger_1.default.info(`New user registered: ${email}`);
         return {
-            user: {
-                id: user._id.toString(),
-                email: user.email,
-                firstName: user.firstName,
-                lastName: user.lastName,
-                profilePhoto: user.profilePhoto,
-                subscription: user.subscription,
-                gamification: user.gamification,
-            },
+            user: this.formatUserResponse(user),
             accessToken,
             refreshToken,
         };
@@ -60,7 +87,7 @@ class AuthService {
     async login(data) {
         const { email, password } = data;
         // Find user
-        const user = await models_1.User.findOne({ email }).select('+password +refreshToken');
+        const user = await models_1.User.findOne({ email: email.toLowerCase() }).select('+password +refreshToken');
         if (!user) {
             throw new Error('Invalid email or password');
         }
@@ -81,15 +108,7 @@ class AuthService {
         await user.save();
         logger_1.default.info(`User logged in: ${email}`);
         return {
-            user: {
-                id: user._id.toString(),
-                email: user.email,
-                firstName: user.firstName,
-                lastName: user.lastName,
-                profilePhoto: user.profilePhoto,
-                subscription: user.subscription,
-                gamification: user.gamification,
-            },
+            user: this.formatUserResponse(user),
             accessToken,
             refreshToken,
         };
@@ -129,6 +148,28 @@ class AuthService {
             throw new Error('User not found');
         }
         return user;
+    }
+    /**
+     * Get user profile with completion status
+     */
+    async getUserProfileWithCompletion(userId) {
+        const user = await models_1.User.findById(userId);
+        if (!user) {
+            throw new Error('User not found');
+        }
+        return {
+            user: this.formatUserResponse(user),
+        };
+    }
+    /**
+     * Get profile completion status only
+     */
+    async getProfileCompletion(userId) {
+        const user = await models_1.User.findById(userId);
+        if (!user) {
+            throw new Error('User not found');
+        }
+        return user.getProfileCompletion();
     }
     /**
      * Update FCM token

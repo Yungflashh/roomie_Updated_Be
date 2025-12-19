@@ -99,14 +99,34 @@ class AuthController {
     async getMe(req, res) {
         try {
             const userId = req.user?.userId;
-            const user = await auth_service_1.default.getUserProfile(userId);
+            const result = await auth_service_1.default.getUserProfileWithCompletion(userId);
             res.status(200).json({
                 success: true,
-                data: { user },
+                data: result,
             });
         }
         catch (error) {
             logger_1.default.error('Get me error:', error);
+            res.status(404).json({
+                success: false,
+                message: error.message || 'User not found',
+            });
+        }
+    }
+    /**
+     * Get profile completion status
+     */
+    async getProfileCompletion(req, res) {
+        try {
+            const userId = req.user?.userId;
+            const completion = await auth_service_1.default.getProfileCompletion(userId);
+            res.status(200).json({
+                success: true,
+                data: completion,
+            });
+        }
+        catch (error) {
+            logger_1.default.error('Get profile completion error:', error);
             res.status(404).json({
                 success: false,
                 message: error.message || 'User not found',

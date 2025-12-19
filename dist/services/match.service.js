@@ -3,25 +3,27 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+// src/services/match.service.ts
 const models_1 = require("../models");
+const socket_config_1 = require("../config/socket.config");
 const compatibility_service_1 = __importDefault(require("./compatibility.service"));
+const notification_service_1 = __importDefault(require("./notification.service"));
 const logger_1 = __importDefault(require("../utils/logger"));
 class MatchService {
     /**
      * Get potential matches
      */
-    async getPotentialMatches(userId, limit = 20, minCompatibility = 50) {
+    async getPotentialMatches(userId, limit = 20, minCompatibility = 0) {
         const currentUser = await models_1.User.findById(userId);
         if (!currentUser) {
             throw new Error('User not found');
         }
-        // Get interacted user IDs
+        logger_1.default.info(`Getting potential matches for user: ${userId}`);
         const interactedUserIds = [
             ...currentUser.likes.map(id => id.toString()),
             ...currentUser.passes.map(id => id.toString()),
             ...currentUser.blockedUsers.map(id => id.toString()),
         ];
-        // Find potential matches
         const potentialMatches = await models_1.User.find({
             _id: {
                 $ne: userId,
@@ -30,19 +32,71 @@ class MatchService {
             isActive: true,
             blockedUsers: { $ne: userId },
         })
-            .limit(limit)
+            .select('firstName lastName profilePhoto photos bio occupation ' +
+            'location preferences lifestyle interests verified')
+            .limit(limit * 2)
             .lean();
-        // Calculate compatibility scores
-        const matchesWithScores = potentialMatches.map((user) => {
+        logger_1.default.info(`Found ${potentialMatches.length} potential matches before scoring`);
+        const matchesWithScores = potentialMatches
+            .map((user) => {
             const score = compatibility_service_1.default.calculateCompatibility(currentUser, user);
             return {
-                user,
+                user: {
+                    id: user._id,
+                    _id: user._id,
+                    firstName: user.firstName,
+                    lastName: user.lastName,
+                    profilePhoto: user.profilePhoto,
+                    photos: user.photos || [],
+                    bio: user.bio,
+                    occupation: user.occupation,
+                    location: user.location,
+                    preferences: user.preferences,
+                    lifestyle: user.lifestyle,
+                    interests: user.interests || [],
+                    verified: user.verified,
+                },
                 compatibilityScore: score,
             };
         })
             .filter((match) => match.compatibilityScore >= minCompatibility)
-            .sort((a, b) => b.compatibilityScore - a.compatibilityScore);
+            .sort((a, b) => b.compatibilityScore - a.compatibilityScore)
+            .slice(0, limit);
+        logger_1.default.info(`Returning ${matchesWithScores.length} matches with scores >= ${minCompatibility}`);
         return matchesWithScores;
+    }
+    /**
+     * Get sent likes
+     */
+    async getSentLikes(userId) {
+        const currentUser = await models_1.User.findById(userId).select('likes');
+        if (!currentUser) {
+            throw new Error('User not found');
+        }
+        const matchedUserIds = await this.getMatchedUserIds(userId);
+        const pendingLikeIds = currentUser.likes.filter((likeId) => !matchedUserIds.includes(likeId.toString()));
+        const likedUsers = await models_1.User.find({
+            _id: { $in: pendingLikeIds },
+        })
+            .select('firstName lastName profilePhoto photos bio occupation ' +
+            'location preferences lifestyle interests verified')
+            .lean();
+        logger_1.default.info(`Found ${likedUsers.length} sent likes for ${userId}`);
+        return likedUsers.map(user => ({
+            id: user._id,
+            _id: user._id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            profilePhoto: user.profilePhoto,
+            photos: user.photos || [],
+            bio: user.bio,
+            occupation: user.occupation,
+            location: user.location,
+            preferences: user.preferences,
+            lifestyle: user.lifestyle,
+            interests: user.interests || [],
+            verified: user.verified,
+        }));
     }
     /**
      * Like a user
@@ -67,7 +121,6 @@ class MatchService {
         const isMutualMatch = targetUser.likes.includes(userId);
         if (isMutualMatch) {
             const compatibilityScore = compatibility_service_1.default.calculateCompatibility(currentUser, targetUser);
-            // Check if match exists
             let match = await models_1.Match.findOne({
                 $or: [
                     { user1: userId, user2: targetUserId },
@@ -83,6 +136,37 @@ class MatchService {
                     status: 'active',
                 });
                 logger_1.default.info(`New match created: ${userId} <-> ${targetUserId}`);
+                // Emit match event to both users via WebSocket
+                try {
+                    (0, socket_config_1.emitNewMatch)(userId, targetUserId, {
+                        _id: match._id,
+                        matchedAt: match.matchedAt,
+                        user: {
+                            _id: targetUser._id,
+                            firstName: targetUser.firstName,
+                            lastName: targetUser.lastName,
+                            profilePhoto: targetUser.profilePhoto,
+                        },
+                        compatibilityScore,
+                    });
+                    (0, socket_config_1.emitNewMatch)(targetUserId, userId, {
+                        _id: match._id,
+                        matchedAt: match.matchedAt,
+                        user: {
+                            _id: currentUser._id,
+                            firstName: currentUser.firstName,
+                            lastName: currentUser.lastName,
+                            profilePhoto: currentUser.profilePhoto,
+                        },
+                        compatibilityScore,
+                    });
+                }
+                catch (socketError) {
+                    logger_1.default.warn('Socket emit failed:', socketError);
+                }
+                // Create notifications
+                await notification_service_1.default.notifyMatchAccepted(userId, targetUserId, match._id.toString());
+                await notification_service_1.default.notifyMatchAccepted(targetUserId, userId, match._id.toString());
             }
             return {
                 isMatch: true,
@@ -98,6 +182,20 @@ class MatchService {
                 },
             };
         }
+        // Not a match yet - emit match request to target user
+        try {
+            (0, socket_config_1.emitMatchRequest)(targetUserId, {
+                _id: currentUser._id,
+                firstName: currentUser.firstName,
+                lastName: currentUser.lastName,
+                profilePhoto: currentUser.profilePhoto,
+            });
+        }
+        catch (socketError) {
+            logger_1.default.warn('Socket emit failed:', socketError);
+        }
+        // Create notification for like
+        await notification_service_1.default.notifyLike(userId, targetUserId);
         return { isMatch: false };
     }
     /**
@@ -107,7 +205,7 @@ class MatchService {
         await models_1.User.findByIdAndUpdate(userId, { $addToSet: { passes: targetUserId } });
     }
     /**
-     * Get user's matches
+     * Get user's matches with last message info
      */
     async getMatches(userId, page = 1, limit = 20) {
         const skip = (page - 1) * limit;
@@ -115,30 +213,41 @@ class MatchService {
             $or: [{ user1: userId }, { user2: userId }],
             status: 'active',
         })
-            .sort({ matchedAt: -1 })
+            .sort({ lastMessageAt: -1, matchedAt: -1 })
             .skip(skip)
             .limit(limit)
-            .populate('user1 user2', 'firstName lastName profilePhoto bio occupation');
+            .populate('user1 user2', 'firstName lastName profilePhoto bio occupation isActive lastSeen');
         const total = await models_1.Match.countDocuments({
             $or: [{ user1: userId }, { user2: userId }],
             status: 'active',
         });
-        // Format matches
-        const formattedMatches = matches.map((match) => {
+        // Get last message for each match
+        const formattedMatches = await Promise.all(matches.map(async (match) => {
             const otherUser = match.user1._id.toString() === userId
                 ? match.user2
                 : match.user1;
+            const isUser1 = match.user1._id.toString() === userId;
+            // Get last message
+            const lastMessage = await models_1.Message.findOne({
+                match: match._id,
+                deleted: false,
+            })
+                .sort({ createdAt: -1 })
+                .select('type content sender createdAt read')
+                .lean();
             return {
+                _id: match._id,
                 id: match._id,
                 user: otherUser,
                 compatibilityScore: match.compatibilityScore,
                 matchedAt: match.matchedAt,
-                lastMessageAt: match.lastMessageAt,
-                unreadCount: match.user1._id.toString() === userId
+                lastMessageAt: match.lastMessageAt || match.matchedAt,
+                lastMessage,
+                unreadCount: isUser1
                     ? match.unreadCount.user1
                     : match.unreadCount.user2,
             };
-        });
+        }));
         return {
             matches: formattedMatches,
             pagination: {
@@ -184,6 +293,8 @@ class MatchService {
         }
         match.status = 'blocked';
         await match.save();
+        // Delete all messages
+        await models_1.Message.deleteMany({ match: matchId });
     }
     /**
      * Get users who liked current user
@@ -192,11 +303,31 @@ class MatchService {
         const matchedUserIds = await this.getMatchedUserIds(userId);
         const usersWhoLiked = await models_1.User.find({
             likes: userId,
-            _id: { $nin: matchedUserIds },
+            _id: {
+                $ne: userId,
+                $nin: matchedUserIds
+            },
         })
-            .select('firstName lastName profilePhoto bio occupation')
-            .limit(20);
-        return usersWhoLiked;
+            .select('firstName lastName profilePhoto photos bio occupation ' +
+            'location preferences lifestyle interests verified')
+            .limit(50)
+            .lean();
+        logger_1.default.info(`Found ${usersWhoLiked.length} users who liked ${userId}`);
+        return usersWhoLiked.map(user => ({
+            id: user._id,
+            _id: user._id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            profilePhoto: user.profilePhoto,
+            photos: user.photos || [],
+            bio: user.bio,
+            occupation: user.occupation,
+            location: user.location,
+            preferences: user.preferences,
+            lifestyle: user.lifestyle,
+            interests: user.interests || [],
+            verified: user.verified,
+        }));
     }
     /**
      * Get matched user IDs helper

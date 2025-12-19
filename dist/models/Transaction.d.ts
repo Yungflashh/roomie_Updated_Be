@@ -14,15 +14,24 @@ export interface ITransactionDocument extends Document {
 }
 export interface INotificationDocument extends Document {
     user: mongoose.Types.ObjectId;
-    type: 'match' | 'message' | 'like' | 'challenge' | 'achievement' | 'system' | 'location_nearby';
+    type: 'match' | 'message' | 'like' | 'request' | 'request_accepted' | 'listing_like' | 'listing_view' | 'challenge' | 'achievement' | 'system' | 'reminder' | 'location_nearby';
     title: string;
     body: string;
-    data?: any;
-    imageUrl?: string;
+    data?: {
+        userId?: string;
+        matchId?: string;
+        listingId?: string;
+        messageId?: string;
+        actionUrl?: string;
+        [key: string]: any;
+    };
+    image?: string;
     read: boolean;
     readAt?: Date;
     sent: boolean;
     sentAt?: Date;
+    createdAt: Date;
+    updatedAt: Date;
 }
 export declare const Transaction: mongoose.Model<ITransactionDocument, {}, {}, {}, mongoose.Document<unknown, {}, ITransactionDocument, {}, mongoose.DefaultSchemaOptions> & ITransactionDocument & Required<{
     _id: mongoose.Types.ObjectId;

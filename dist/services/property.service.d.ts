@@ -5,27 +5,27 @@ interface CreatePropertyData {
     description: string;
     type: 'apartment' | 'house' | 'condo' | 'room';
     price: number;
-    currency: string;
-    address: string;
-    latitude: number;
-    longitude: number;
+    currency?: string;
+    address?: string;
+    latitude?: number;
+    longitude?: number;
     city: string;
     state: string;
-    country: string;
+    country?: string;
     zipCode?: string;
     photos: string[];
     videos?: string[];
-    amenities: string[];
+    amenities?: string[];
     bedrooms: number;
     bathrooms: number;
     squareFeet?: number;
-    availableFrom: Date;
-    leaseDuration: number;
-    petFriendly: boolean;
-    smokingAllowed: boolean;
-    utilitiesIncluded: boolean;
-    furnished: boolean;
-    parkingAvailable: boolean;
+    availableFrom?: Date;
+    leaseDuration?: number;
+    petFriendly?: boolean;
+    smokingAllowed?: boolean;
+    utilitiesIncluded?: boolean;
+    furnished?: boolean;
+    parkingAvailable?: boolean;
 }
 declare class PropertyService {
     /**
@@ -41,7 +41,7 @@ declare class PropertyService {
      */
     updateProperty(propertyId: string, landlordId: string, updates: any): Promise<IPropertyDocument>;
     /**
-     * Delete property
+     * Delete property (soft delete)
      */
     deleteProperty(propertyId: string, landlordId: string): Promise<void>;
     /**

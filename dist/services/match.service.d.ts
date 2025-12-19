@@ -8,6 +8,10 @@ declare class MatchService {
      */
     getPotentialMatches(userId: string, limit?: number, minCompatibility?: number): Promise<PotentialMatch[]>;
     /**
+     * Get sent likes
+     */
+    getSentLikes(userId: string): Promise<any[]>;
+    /**
      * Like a user
      */
     likeUser(userId: string, targetUserId: string): Promise<{
@@ -19,7 +23,7 @@ declare class MatchService {
      */
     passUser(userId: string, targetUserId: string): Promise<void>;
     /**
-     * Get user's matches
+     * Get user's matches with last message info
      */
     getMatches(userId: string, page?: number, limit?: number): Promise<{
         matches: any[];

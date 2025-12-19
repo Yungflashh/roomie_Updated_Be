@@ -9,19 +9,48 @@ const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const duplicateDetection_service_1 = __importDefault(require("./duplicateDetection.service"));
 class UserService {
-    /**
-     * Get user by ID
-     */
     async getUserById(userId, currentUserId) {
-        const user = await models_1.User.findById(userId).select('-password -refreshToken');
+        const user = await models_1.User.findById(userId)
+            .select('firstName lastName email phoneNumber profilePhoto photos bio occupation ' +
+            'gender dateOfBirth location preferences lifestyle interests languages ' +
+            'socialLinks verified emailVerified createdAt lastSeen')
+            .lean();
         if (!user) {
             throw new Error('User not found');
         }
-        // Check if blocked
-        if (currentUserId && user.blockedUsers.includes(currentUserId)) {
-            throw new Error('You are blocked by this user');
+        // Check blocked status if viewing another user
+        if (currentUserId && currentUserId !== userId) {
+            const currentUser = await models_1.User.findById(currentUserId).select('blockedUsers');
+            if (currentUser?.blockedUsers?.some((id) => id.toString() === userId)) {
+                throw new Error('You have blocked this user');
+            }
+            if (user.blockedUsers?.some((id) => id.toString() === currentUserId)) {
+                throw new Error('This user has blocked you');
+            }
         }
-        return user;
+        return {
+            id: user._id,
+            _id: user._id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            phoneNumber: user.phoneNumber,
+            profilePhoto: user.profilePhoto,
+            photos: user.photos || [],
+            bio: user.bio,
+            occupation: user.occupation,
+            gender: user.gender,
+            dateOfBirth: user.dateOfBirth,
+            location: user.location,
+            preferences: user.preferences,
+            lifestyle: user.lifestyle,
+            interests: user.interests || [],
+            languages: user.languages || [],
+            socialLinks: user.socialLinks || [],
+            verified: user.verified,
+            emailVerified: user.emailVerified,
+            // createdAt: user.createdAt,
+        };
     }
     /**
      * Update user profile
@@ -38,6 +67,42 @@ class UserService {
             throw new Error('User not found');
         }
         return user;
+    }
+    /**
+     * Update user profile
+     */
+    async updateUser(userId, updateData) {
+        // Fields that cannot be updated directly
+        const forbiddenFields = ['password', 'email', 'refreshToken', 'likes', 'passes', 'blockedUsers', 'reportedBy'];
+        // Remove forbidden fields
+        forbiddenFields.forEach(field => {
+            delete updateData[field];
+        });
+        const user = await models_1.User.findByIdAndUpdate(userId, { $set: updateData }, { new: true, runValidators: true }).select('-password -refreshToken');
+        if (!user) {
+            throw new Error('User not found');
+        }
+        return {
+            id: user._id,
+            _id: user._id,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            email: user.email,
+            phoneNumber: user.phoneNumber,
+            profilePhoto: user.profilePhoto,
+            photos: user.photos || [],
+            bio: user.bio,
+            occupation: user.occupation,
+            gender: user.gender,
+            dateOfBirth: user.dateOfBirth,
+            location: user.location,
+            preferences: user.preferences,
+            lifestyle: user.lifestyle,
+            interests: user.interests || [],
+            languages: user.languages || [],
+            socialLinks: user.socialLinks || [],
+            verified: user.verified,
+        };
     }
     /**
      * Update preferences

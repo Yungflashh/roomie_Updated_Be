@@ -1,13 +1,14 @@
 import { IUserDocument } from '../models';
 declare class UserService {
-    /**
-     * Get user by ID
-     */
-    getUserById(userId: string, currentUserId?: string): Promise<IUserDocument>;
+    getUserById(userId: string, currentUserId?: string): Promise<any>;
     /**
      * Update user profile
      */
     updateProfile(userId: string, updates: any): Promise<IUserDocument>;
+    /**
+     * Update user profile
+     */
+    updateUser(userId: string, updateData: Partial<IUserDocument>): Promise<any>;
     /**
      * Update preferences
      */

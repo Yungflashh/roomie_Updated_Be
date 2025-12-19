@@ -49,6 +49,11 @@ export const notFoundHandler = (
   res: Response,
   next: NextFunction
 ): void => {
+  // Skip Socket.IO requests - let Socket.IO handle them
+  if (req.path.startsWith('/socket.io')) {
+    return next();
+  }
+
   res.status(404).json({
     success: false,
     message: 'Resource not found',

@@ -11,20 +11,43 @@ interface LoginData {
     email: string;
     password: string;
 }
+interface UserResponse {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    profilePhoto?: string;
+    photos?: string[];
+    bio?: string;
+    occupation?: string;
+    dateOfBirth?: Date;
+    gender?: string;
+    phoneNumber?: string;
+    location?: any;
+    preferences?: any;
+    lifestyle?: any;
+    interests?: string[];
+    languages?: string[];
+    socialLinks?: any[];
+    verified?: boolean;
+    emailVerified?: boolean;
+    subscription: any;
+    gamification: any;
+    isProfileComplete: boolean;
+    profileCompletionPercentage: number;
+    missingProfileFields: string[];
+    age?: number;
+}
 interface AuthResponse {
-    user: {
-        id: string;
-        email: string;
-        firstName: string;
-        lastName: string;
-        profilePhoto?: string;
-        subscription: any;
-        gamification: any;
-    };
+    user: UserResponse;
     accessToken: string;
     refreshToken: string;
 }
 declare class AuthService {
+    /**
+     * Helper to format user response with profile completion
+     */
+    private formatUserResponse;
     /**
      * Register new user
      */
@@ -48,6 +71,21 @@ declare class AuthService {
      * Get user profile
      */
     getUserProfile(userId: string): Promise<IUserDocument>;
+    /**
+     * Get user profile with completion status
+     */
+    getUserProfileWithCompletion(userId: string): Promise<{
+        user: UserResponse;
+    }>;
+    /**
+     * Get profile completion status only
+     */
+    getProfileCompletion(userId: string): Promise<{
+        isComplete: boolean;
+        percentage: number;
+        missingFields: string[];
+        completedFields: string[];
+    }>;
     /**
      * Update FCM token
      */

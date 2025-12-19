@@ -46,26 +46,110 @@ exports.updateLocationValidation = [
     (0, express_validator_1.body)('state').optional().trim(),
     (0, express_validator_1.body)('country').optional().trim(),
 ];
-// Property validations
+// src/validation/schemas.ts - Update createPropertyValidation
 exports.createPropertyValidation = [
-    (0, express_validator_1.body)('title').trim().notEmpty().withMessage('Title is required'),
-    (0, express_validator_1.body)('description').trim().notEmpty().withMessage('Description is required'),
-    (0, express_validator_1.body)('type').isIn(['apartment', 'house', 'condo', 'room']).withMessage('Valid property type required'),
-    (0, express_validator_1.body)('price').isFloat({ min: 0 }).withMessage('Valid price required'),
-    (0, express_validator_1.body)('address').trim().notEmpty().withMessage('Address is required'),
-    (0, express_validator_1.body)('latitude').isFloat({ min: -90, max: 90 }),
-    (0, express_validator_1.body)('longitude').isFloat({ min: -180, max: 180 }),
-    (0, express_validator_1.body)('city').trim().notEmpty(),
-    (0, express_validator_1.body)('state').trim().notEmpty(),
-    (0, express_validator_1.body)('country').trim().notEmpty(),
-    (0, express_validator_1.body)('bedrooms').isInt({ min: 0 }),
-    (0, express_validator_1.body)('bathrooms').isFloat({ min: 0 }),
-    (0, express_validator_1.body)('availableFrom').isISO8601(),
-    (0, express_validator_1.body)('leaseDuration').isInt({ min: 1 }),
+    (0, express_validator_1.body)('title')
+        .trim()
+        .notEmpty()
+        .withMessage('Title is required')
+        .isLength({ min: 5, max: 100 })
+        .withMessage('Title must be between 5 and 100 characters'),
+    (0, express_validator_1.body)('description')
+        .trim()
+        .notEmpty()
+        .withMessage('Description is required')
+        .isLength({ min: 20, max: 2000 })
+        .withMessage('Description must be between 20 and 2000 characters'),
+    (0, express_validator_1.body)('type')
+        .isIn(['apartment', 'house', 'condo', 'room'])
+        .withMessage('Invalid property type'),
+    (0, express_validator_1.body)('price')
+        .isNumeric()
+        .withMessage('Price must be a number')
+        .custom((value) => value > 0)
+        .withMessage('Price must be greater than 0'),
+    (0, express_validator_1.body)('currency')
+        .optional()
+        .isIn(['NGN', 'USD', 'EUR', 'GBP'])
+        .withMessage('Invalid currency'),
+    (0, express_validator_1.body)('address')
+        .optional()
+        .trim()
+        .isLength({ max: 200 })
+        .withMessage('Address must be less than 200 characters'),
+    (0, express_validator_1.body)('city')
+        .trim()
+        .notEmpty()
+        .withMessage('City is required'),
+    (0, express_validator_1.body)('state')
+        .trim()
+        .notEmpty()
+        .withMessage('State is required'),
+    (0, express_validator_1.body)('country')
+        .optional()
+        .trim(),
+    (0, express_validator_1.body)('zipCode')
+        .optional()
+        .trim(),
+    // Make latitude and longitude optional
+    (0, express_validator_1.body)('latitude')
+        .optional({ nullable: true })
+        .isFloat({ min: -90, max: 90 })
+        .withMessage('Latitude must be between -90 and 90'),
+    (0, express_validator_1.body)('longitude')
+        .optional({ nullable: true })
+        .isFloat({ min: -180, max: 180 })
+        .withMessage('Longitude must be between -180 and 180'),
+    (0, express_validator_1.body)('photos')
+        .isArray({ min: 1 })
+        .withMessage('At least one photo is required'),
+    (0, express_validator_1.body)('amenities')
+        .optional()
+        .isArray()
+        .withMessage('Amenities must be an array'),
+    (0, express_validator_1.body)('bedrooms')
+        .isInt({ min: 0 })
+        .withMessage('Bedrooms must be a non-negative integer'),
+    (0, express_validator_1.body)('bathrooms')
+        .isInt({ min: 0 })
+        .withMessage('Bathrooms must be a non-negative integer'),
+    (0, express_validator_1.body)('squareFeet')
+        .optional()
+        .isInt({ min: 0 })
+        .withMessage('Square feet must be a non-negative integer'),
+    (0, express_validator_1.body)('availableFrom')
+        .optional()
+        .isISO8601()
+        .withMessage('Available from must be a valid date'),
+    (0, express_validator_1.body)('leaseDuration')
+        .optional()
+        .isInt({ min: 1 })
+        .withMessage('Lease duration must be at least 1 month'),
+    (0, express_validator_1.body)('petFriendly')
+        .optional()
+        .isBoolean()
+        .withMessage('Pet friendly must be a boolean'),
+    (0, express_validator_1.body)('smokingAllowed')
+        .optional()
+        .isBoolean()
+        .withMessage('Smoking allowed must be a boolean'),
+    (0, express_validator_1.body)('utilitiesIncluded')
+        .optional()
+        .isBoolean()
+        .withMessage('Utilities included must be a boolean'),
+    (0, express_validator_1.body)('furnished')
+        .optional()
+        .isBoolean()
+        .withMessage('Furnished must be a boolean'),
+    (0, express_validator_1.body)('parkingAvailable')
+        .optional()
+        .isBoolean()
+        .withMessage('Parking available must be a boolean'),
 ];
-// Match validations
 exports.likeUserValidation = [
-    (0, express_validator_1.param)('userId').isMongoId().withMessage('Valid user ID required'),
+    (0, express_validator_1.param)('targetUserId')
+        .isMongoId()
+        .withMessage('Valid user ID required'),
 ];
 // Message validations
 exports.sendMessageValidation = [
@@ -73,12 +157,15 @@ exports.sendMessageValidation = [
     (0, express_validator_1.body)('type').isIn(['text', 'image', 'video', 'audio', 'file']),
     (0, express_validator_1.body)('content').if((0, express_validator_1.body)('type').equals('text')).notEmpty().withMessage('Message content required'),
 ];
-// Pagination validations
 exports.paginationValidation = [
-    (0, express_validator_1.query)('page').optional().isInt({ min: 1 }).withMessage('Page must be >= 1'),
-    (0, express_validator_1.query)('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be 1-100'),
-    (0, express_validator_1.query)('sortBy').optional().isString(),
-    (0, express_validator_1.query)('sortOrder').optional().isIn(['asc', 'desc']),
+    (0, express_validator_1.query)('page')
+        .optional()
+        .isInt({ min: 1 })
+        .withMessage('Page must be a positive integer'),
+    (0, express_validator_1.query)('limit')
+        .optional()
+        .isInt({ min: 1, max: 100 })
+        .withMessage('Limit must be between 1 and 100'),
 ];
 // Location search validations
 exports.locationSearchValidation = [

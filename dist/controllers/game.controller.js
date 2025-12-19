@@ -6,6 +6,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const game_service_1 = __importDefault(require("../services/game.service"));
 const logger_1 = __importDefault(require("../utils/logger"));
 class GameController {
+    /**
+     * Get all available games
+     */
     async getAllGames(req, res) {
         try {
             const games = await game_service_1.default.getAllGames();
@@ -22,6 +25,9 @@ class GameController {
             });
         }
     }
+    /**
+     * Get game details
+     */
     async getGame(req, res) {
         try {
             const { gameId } = req.params;
@@ -40,49 +46,135 @@ class GameController {
             });
         }
     }
-    async createSession(req, res) {
+    /**
+     * Send game invitation
+     */
+    async sendInvitation(req, res) {
         try {
             const userId = req.user?.userId;
-            const { gameId } = req.body;
-            const session = await game_service_1.default.createGameSession(gameId, userId);
+            const { gameId, invitedUserId, matchId } = req.body;
+            if (!gameId || !invitedUserId || !matchId) {
+                res.status(400).json({
+                    success: false,
+                    message: 'gameId, invitedUserId, and matchId are required',
+                });
+                return;
+            }
+            const session = await game_service_1.default.sendGameInvitation(gameId, userId, invitedUserId, matchId);
             res.status(201).json({
                 success: true,
-                message: 'Game session created',
+                message: 'Game invitation sent',
                 data: { session },
             });
         }
         catch (error) {
-            logger_1.default.error('Create session error:', error);
-            res.status(500).json({
+            logger_1.default.error('Send invitation error:', error);
+            res.status(400).json({
                 success: false,
-                message: error.message || 'Failed to create session',
+                message: error.message || 'Failed to send invitation',
             });
         }
     }
-    async joinSession(req, res) {
+    /**
+     * Respond to game invitation
+     */
+    async respondToInvitation(req, res) {
         try {
             const userId = req.user?.userId;
             const { sessionId } = req.params;
-            const session = await game_service_1.default.joinGameSession(sessionId, userId);
+            const { accept } = req.body;
+            if (typeof accept !== 'boolean') {
+                res.status(400).json({
+                    success: false,
+                    message: 'accept must be a boolean',
+                });
+                return;
+            }
+            const session = await game_service_1.default.respondToInvitation(sessionId, userId, accept);
             res.status(200).json({
                 success: true,
-                message: 'Joined game session',
+                message: accept ? 'Invitation accepted' : 'Invitation declined',
                 data: { session },
             });
         }
         catch (error) {
-            logger_1.default.error('Join session error:', error);
-            const statusCode = error.message.includes('not found') ? 404 : 400;
-            res.status(statusCode).json({
+            logger_1.default.error('Respond to invitation error:', error);
+            res.status(400).json({
                 success: false,
-                message: error.message || 'Failed to join session',
+                message: error.message || 'Failed to respond to invitation',
             });
         }
     }
-    async startSession(req, res) {
+    /**
+     * Cancel game invitation
+     */
+    async cancelInvitation(req, res) {
+        try {
+            const userId = req.user?.userId;
+            const { sessionId } = req.params;
+            await game_service_1.default.cancelInvitation(sessionId, userId);
+            res.status(200).json({
+                success: true,
+                message: 'Invitation cancelled',
+            });
+        }
+        catch (error) {
+            logger_1.default.error('Cancel invitation error:', error);
+            res.status(400).json({
+                success: false,
+                message: error.message || 'Failed to cancel invitation',
+            });
+        }
+    }
+    /**
+     * Get game session
+     */
+    async getSession(req, res) {
         try {
             const { sessionId } = req.params;
-            const session = await game_service_1.default.startGameSession(sessionId);
+            const session = await game_service_1.default.getGameSession(sessionId);
+            res.status(200).json({
+                success: true,
+                data: { session },
+            });
+        }
+        catch (error) {
+            logger_1.default.error('Get session error:', error);
+            const statusCode = error.message.includes('not found') ? 404 : 500;
+            res.status(statusCode).json({
+                success: false,
+                message: error.message || 'Failed to fetch session',
+            });
+        }
+    }
+    /**
+     * Get active game session for a match
+     */
+    async getActiveSession(req, res) {
+        try {
+            const { matchId } = req.params;
+            const session = await game_service_1.default.getActiveGameSession(matchId);
+            res.status(200).json({
+                success: true,
+                data: { session },
+            });
+        }
+        catch (error) {
+            logger_1.default.error('Get active session error:', error);
+            res.status(500).json({
+                success: false,
+                message: error.message || 'Failed to fetch active session',
+            });
+        }
+    }
+    /**
+     * Start game session
+     */
+    async startSession(req, res) {
+        try {
+            const userId = req.user?.userId;
+            const { sessionId } = req.params;
+            const session = await game_service_1.default.startGameSession(sessionId, userId);
             res.status(200).json({
                 success: true,
                 message: 'Game session started',
@@ -97,26 +189,60 @@ class GameController {
             });
         }
     }
-    async submitScore(req, res) {
+    /**
+     * Submit answer (legacy - single answer)
+     */
+    async submitAnswer(req, res) {
         try {
             const userId = req.user?.userId;
             const { sessionId } = req.params;
-            const { score } = req.body;
-            const session = await game_service_1.default.submitScore(sessionId, userId, score);
+            const { questionIndex, answer, timeSpent } = req.body;
+            const result = await game_service_1.default.submitAnswer(sessionId, userId, questionIndex, answer, timeSpent);
             res.status(200).json({
                 success: true,
-                message: 'Score submitted',
-                data: { session },
+                data: result,
             });
         }
         catch (error) {
-            logger_1.default.error('Submit score error:', error);
+            logger_1.default.error('Submit answer error:', error);
             res.status(400).json({
                 success: false,
-                message: error.message || 'Failed to submit score',
+                message: error.message || 'Failed to submit answer',
             });
         }
     }
+    /**
+     * Submit all answers at once when player completes game
+     */
+    async submitAllAnswers(req, res) {
+        try {
+            const userId = req.user?.userId;
+            const { sessionId } = req.params;
+            const { answers } = req.body;
+            if (!answers || !Array.isArray(answers)) {
+                res.status(400).json({
+                    success: false,
+                    message: 'Answers array is required',
+                });
+                return;
+            }
+            const result = await game_service_1.default.submitAllAnswers(sessionId, userId, answers);
+            res.status(200).json({
+                success: true,
+                data: result,
+            });
+        }
+        catch (error) {
+            logger_1.default.error('Submit all answers error:', error);
+            res.status(400).json({
+                success: false,
+                message: error.message || 'Failed to submit answers',
+            });
+        }
+    }
+    /**
+     * Complete game session
+     */
     async completeSession(req, res) {
         try {
             const { sessionId } = req.params;
@@ -135,6 +261,9 @@ class GameController {
             });
         }
     }
+    /**
+     * Get user's game history
+     */
     async getGameHistory(req, res) {
         try {
             const userId = req.user?.userId;
@@ -153,6 +282,9 @@ class GameController {
             });
         }
     }
+    /**
+     * Get game leaderboard
+     */
     async getLeaderboard(req, res) {
         try {
             const { gameId } = req.params;

@@ -10,17 +10,59 @@ export interface IGameDocument extends Document {
     pointsReward: number;
     isActive: boolean;
 }
+export interface IGameSessionPlayer {
+    user: mongoose.Types.ObjectId;
+    score: number;
+    rank: number;
+    isReady?: boolean;
+    completedAt?: Date;
+    answers?: Array<{
+        questionIndex: number;
+        answer: string;
+        correct: boolean;
+        timeSpent: number;
+    }>;
+}
 export interface IGameSessionDocument extends Document {
     game: mongoose.Types.ObjectId;
-    players: Array<{
-        user: mongoose.Types.ObjectId;
-        score: number;
-        rank: number;
-    }>;
+    match?: mongoose.Types.ObjectId;
+    players: IGameSessionPlayer[];
+    invitedBy?: mongoose.Types.ObjectId;
+    invitedUser?: mongoose.Types.ObjectId;
     winner?: mongoose.Types.ObjectId;
-    startedAt: Date;
+    startedAt?: Date;
     endedAt?: Date;
-    status: 'waiting' | 'active' | 'completed' | 'cancelled';
+    expiresAt?: Date;
+    status: 'pending' | 'waiting' | 'active' | 'completed' | 'cancelled' | 'declined' | 'expired';
+    gameData?: {
+        questions?: Array<{
+            question: string;
+            options: string[];
+            correctAnswer: string;
+            category?: string;
+        }>;
+        words?: Array<{
+            scrambled: string;
+            hint: string;
+            answer: string;
+        }>;
+        challenges?: Array<{
+            emojis: string;
+            answer: string;
+            hint: string;
+        }>;
+        cards?: Array<{
+            id: number;
+            emoji: string;
+            flipped: boolean;
+            matched: boolean;
+        }>;
+        currentRound?: number;
+        totalRounds?: number;
+        timeLimit?: number;
+    };
+    createdAt: Date;
+    updatedAt: Date;
 }
 export declare const Game: mongoose.Model<IGameDocument, {}, {}, {}, mongoose.Document<unknown, {}, IGameDocument, {}, mongoose.DefaultSchemaOptions> & IGameDocument & Required<{
     _id: mongoose.Types.ObjectId;

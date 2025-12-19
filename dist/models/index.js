@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Leaderboard = exports.Notification = exports.Transaction = exports.Challenge = exports.GameSession = exports.Game = exports.MediaHash = exports.Message = exports.Match = exports.Property = exports.User = void 0;
+exports.UserPoints = exports.RoommateConnection = exports.SharedListing = exports.SharedExpense = exports.Chore = exports.Leaderboard = exports.Notification = exports.Transaction = exports.Challenge = exports.GameSession = exports.Game = exports.MediaHash = exports.Message = exports.Match = exports.Property = exports.User = void 0;
 var User_1 = require("./User");
 Object.defineProperty(exports, "User", { enumerable: true, get: function () { return User_1.User; } });
 var Property_1 = require("./Property");
@@ -21,4 +21,14 @@ Object.defineProperty(exports, "Transaction", { enumerable: true, get: function 
 Object.defineProperty(exports, "Notification", { enumerable: true, get: function () { return Transaction_1.Notification; } });
 var Leaderboard_1 = require("./Leaderboard");
 Object.defineProperty(exports, "Leaderboard", { enumerable: true, get: function () { return Leaderboard_1.Leaderboard; } });
+var Chore_1 = require("./Chore");
+Object.defineProperty(exports, "Chore", { enumerable: true, get: function () { return Chore_1.Chore; } });
+var SharedExpense_1 = require("./SharedExpense");
+Object.defineProperty(exports, "SharedExpense", { enumerable: true, get: function () { return SharedExpense_1.SharedExpense; } });
+var SharedListing_1 = require("./SharedListing");
+Object.defineProperty(exports, "SharedListing", { enumerable: true, get: function () { return SharedListing_1.SharedListing; } });
+var RoommateConnection_1 = require("./RoommateConnection");
+Object.defineProperty(exports, "RoommateConnection", { enumerable: true, get: function () { return RoommateConnection_1.RoommateConnection; } });
+var UserPoints_1 = require("./UserPoints");
+Object.defineProperty(exports, "UserPoints", { enumerable: true, get: function () { return UserPoints_1.UserPoints; } });
 //# sourceMappingURL=index.js.map

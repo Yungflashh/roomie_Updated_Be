@@ -3,11 +3,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+// src/routes/game.routes.ts
 const express_1 = require("express");
 const game_controller_1 = __importDefault(require("../controllers/game.controller"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
-const validation_middleware_1 = require("../middleware/validation.middleware");
-const schemas_1 = require("../validation/schemas");
 const router = (0, express_1.Router)();
 // All routes require authentication
 router.use(auth_middleware_1.authenticate);
@@ -18,23 +17,53 @@ router.use(auth_middleware_1.authenticate);
  */
 router.get('/', game_controller_1.default.getAllGames);
 /**
+ * @route   GET /api/v1/games/history/me
+ * @desc    Get user's game history
+ * @access  Private
+ */
+router.get('/history/me', game_controller_1.default.getGameHistory);
+/**
  * @route   GET /api/v1/games/:gameId
  * @desc    Get game details
  * @access  Private
  */
 router.get('/:gameId', game_controller_1.default.getGame);
 /**
- * @route   POST /api/v1/games/session
- * @desc    Create game session
+ * @route   GET /api/v1/games/:gameId/leaderboard
+ * @desc    Get game leaderboard
  * @access  Private
  */
-router.post('/session', game_controller_1.default.createSession);
+router.get('/:gameId/leaderboard', game_controller_1.default.getLeaderboard);
 /**
- * @route   POST /api/v1/games/session/:sessionId/join
- * @desc    Join game session
+ * @route   POST /api/v1/games/invite
+ * @desc    Send game invitation
  * @access  Private
  */
-router.post('/session/:sessionId/join', game_controller_1.default.joinSession);
+router.post('/invite', game_controller_1.default.sendInvitation);
+/**
+ * @route   POST /api/v1/games/session/:sessionId/respond
+ * @desc    Respond to game invitation (accept/decline)
+ * @access  Private
+ */
+router.post('/session/:sessionId/respond', game_controller_1.default.respondToInvitation);
+/**
+ * @route   DELETE /api/v1/games/session/:sessionId/cancel
+ * @desc    Cancel game invitation
+ * @access  Private
+ */
+router.delete('/session/:sessionId/cancel', game_controller_1.default.cancelInvitation);
+/**
+ * @route   GET /api/v1/games/session/:sessionId
+ * @desc    Get game session details
+ * @access  Private
+ */
+router.get('/session/:sessionId', game_controller_1.default.getSession);
+/**
+ * @route   GET /api/v1/games/match/:matchId/active
+ * @desc    Get active game session for a match
+ * @access  Private
+ */
+router.get('/match/:matchId/active', game_controller_1.default.getActiveSession);
 /**
  * @route   PUT /api/v1/games/session/:sessionId/start
  * @desc    Start game session
@@ -42,28 +71,22 @@ router.post('/session/:sessionId/join', game_controller_1.default.joinSession);
  */
 router.put('/session/:sessionId/start', game_controller_1.default.startSession);
 /**
- * @route   POST /api/v1/games/session/:sessionId/score
- * @desc    Submit game score
+ * @route   POST /api/v1/games/session/:sessionId/answer
+ * @desc    Submit single game answer (legacy)
  * @access  Private
  */
-router.post('/session/:sessionId/score', (0, validation_middleware_1.validate)(schemas_1.submitGameScoreValidation), game_controller_1.default.submitScore);
+router.post('/session/:sessionId/answer', game_controller_1.default.submitAnswer);
+/**
+ * @route   POST /api/v1/games/session/:sessionId/submit
+ * @desc    Submit all answers at once when player completes
+ * @access  Private
+ */
+router.post('/session/:sessionId/submit', game_controller_1.default.submitAllAnswers);
 /**
  * @route   PUT /api/v1/games/session/:sessionId/complete
  * @desc    Complete game session
  * @access  Private
  */
 router.put('/session/:sessionId/complete', game_controller_1.default.completeSession);
-/**
- * @route   GET /api/v1/games/history/me
- * @desc    Get user's game history
- * @access  Private
- */
-router.get('/history/me', (0, validation_middleware_1.validate)(schemas_1.paginationValidation), game_controller_1.default.getGameHistory);
-/**
- * @route   GET /api/v1/games/:gameId/leaderboard
- * @desc    Get game leaderboard
- * @access  Private
- */
-router.get('/:gameId/leaderboard', game_controller_1.default.getLeaderboard);
 exports.default = router;
 //# sourceMappingURL=game.routes.js.map

@@ -1,0 +1,20 @@
+import { Server } from 'socket.io';
+export declare const initializeSocket: (server: any) => Server;
+export declare const emitToUser: (userId: string, event: string, data: any) => void;
+export declare const emitToChat: (matchId: string, event: string, data: any) => void;
+export declare const emitToGameSession: (sessionId: string, event: string, data: any) => void;
+export declare const emitNewMessage: (matchId: string, message: any, senderId: string, receiverId: string) => void;
+export declare const emitGameInvitation: (invitedUserId: string, invitation: any) => void;
+export declare const emitGameInvitationResponse: (userId: string, response: any) => void;
+export declare const emitGameStarted: (sessionId: string, gameData: any) => void;
+export declare const emitGameEnded: (sessionId: string, results: any) => void;
+export declare const emitScoreUpdate: (sessionId: string, scores: any) => void;
+export declare const emitNextQuestion: (sessionId: string, questionData: any) => void;
+export declare const emitUnreadUpdate: (userId: string, counts: any) => void;
+export declare const emitMatchNotification: (userId: string, match: any) => void;
+export declare const emitMatchRequest: (userId: string, request: any) => void;
+export declare const emitNotification: (userId: string, notification: any) => void;
+export declare const emitNewMatch: (user1Id: string, user2Id: string, matchData: any) => void;
+export declare const isUserOnline: (userId: string) => boolean;
+export declare const getIO: () => Server | null;
+//# sourceMappingURL=socket.config.d.ts.map

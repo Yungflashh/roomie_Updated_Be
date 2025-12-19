@@ -69,6 +69,7 @@ const createApp = () => {
                 challenges: '/api/v1/challenges',
                 payments: '/api/v1/payments',
                 notifications: '/api/v1/notifications',
+                discovery: '/api/v1/discover',
             },
         });
     });

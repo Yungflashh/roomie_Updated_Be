@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.GameSession = exports.Game = void 0;
+// src/models/Game.ts
 const mongoose_1 = __importStar(require("mongoose"));
 const gameSchema = new mongoose_1.Schema({
     name: {
@@ -87,6 +88,11 @@ const gameSessionSchema = new mongoose_1.Schema({
         required: true,
         index: true,
     },
+    match: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'Match',
+        index: true,
+    },
     players: [{
             user: {
                 type: mongoose_1.Schema.Types.ObjectId,
@@ -101,21 +107,67 @@ const gameSessionSchema = new mongoose_1.Schema({
                 type: Number,
                 default: 0,
             },
+            isReady: {
+                type: Boolean,
+                default: false,
+            },
+            completedAt: Date,
+            answers: [{
+                    questionIndex: Number,
+                    answer: String,
+                    correct: Boolean,
+                    timeSpent: Number,
+                }],
         }],
+    invitedBy: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'User',
+    },
+    invitedUser: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'User',
+    },
     winner: {
         type: mongoose_1.Schema.Types.ObjectId,
         ref: 'User',
     },
     startedAt: {
         type: Date,
-        default: Date.now,
     },
     endedAt: Date,
+    expiresAt: Date,
     status: {
         type: String,
-        enum: ['waiting', 'active', 'completed', 'cancelled'],
+        enum: ['pending', 'waiting', 'active', 'completed', 'cancelled', 'declined', 'expired'],
         default: 'waiting',
         index: true,
+    },
+    gameData: {
+        questions: [{
+                question: String,
+                options: [String],
+                correctAnswer: String,
+                category: String,
+            }],
+        words: [{
+                scrambled: String,
+                hint: String,
+                answer: String,
+            }],
+        challenges: [{
+                emojis: String,
+                answer: String,
+                hint: String,
+            }],
+        cards: [{
+                id: Number,
+                emoji: String,
+                flipped: Boolean,
+                matched: Boolean,
+            }],
+        currentRound: Number,
+        totalRounds: Number,
+        timeLimit: Number,
     },
 }, {
     timestamps: true,
@@ -123,6 +175,8 @@ const gameSessionSchema = new mongoose_1.Schema({
 // Indexes
 gameSessionSchema.index({ 'players.user': 1 });
 gameSessionSchema.index({ game: 1, status: 1 });
+gameSessionSchema.index({ match: 1, status: 1 });
+gameSessionSchema.index({ invitedUser: 1, status: 1 });
 gameSessionSchema.index({ startedAt: -1 });
 exports.Game = mongoose_1.default.model('Game', gameSchema);
 exports.GameSession = mongoose_1.default.model('GameSession', gameSessionSchema);

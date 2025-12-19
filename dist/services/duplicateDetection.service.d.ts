@@ -5,6 +5,7 @@ interface HashResult {
 }
 interface DuplicateCheckResult {
     isDuplicate: boolean;
+    isSameUser?: boolean;
     similarity?: number;
     existingFile?: {
         _id: string;
@@ -33,10 +34,6 @@ declare class DuplicateDetectionService {
      */
     private calculateSimilarity;
     /**
-     * Extract frames from video for duplicate detection
-     */
-    private extractVideoFrame;
-    /**
      * Generate all hashes for an image
      */
     generateImageHashes(buffer: Buffer): Promise<HashResult>;
@@ -46,6 +43,7 @@ declare class DuplicateDetectionService {
     generateVideoHashes(filePath: string): Promise<HashResult>;
     /**
      * Check if media is duplicate
+     * Now allows same user to re-upload their own images
      */
     checkDuplicate(userId: string, fileBuffer: Buffer, fileType: 'image' | 'video', filePath?: string): Promise<DuplicateCheckResult>;
     /**
@@ -55,6 +53,10 @@ declare class DuplicateDetectionService {
         width: number;
         height: number;
     }, size?: number): Promise<void>;
+    /**
+     * Delete media hash when image is deleted
+     */
+    deleteMediaHash(userId: string, fileUrl: string): Promise<void>;
     /**
      * Clear duplicate cache
      */

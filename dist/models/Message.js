@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Message = void 0;
+// src/models/Message.ts
 const mongoose_1 = __importStar(require("mongoose"));
 const messageSchema = new mongoose_1.Schema({
     match: {
@@ -46,54 +47,94 @@ const messageSchema = new mongoose_1.Schema({
         type: mongoose_1.Schema.Types.ObjectId,
         ref: 'User',
         required: true,
-        index: true,
     },
     receiver: {
         type: mongoose_1.Schema.Types.ObjectId,
         ref: 'User',
         required: true,
-        index: true,
     },
     type: {
         type: String,
-        enum: ['text', 'image', 'video', 'audio', 'file'],
-        required: true,
+        enum: ['text', 'image', 'video', 'audio', 'file', 'game_invite', 'game_result', 'system'],
+        default: 'text',
     },
-    content: String,
+    content: {
+        type: String,
+        maxlength: 5000,
+    },
     mediaUrl: String,
-    mediaHash: String,
-    thumbnailUrl: String,
-    metadata: {
-        size: Number,
-        duration: Number,
-        dimensions: {
-            width: Number,
-            height: Number,
-        },
-    },
+    thumbnail: String,
+    duration: Number,
+    fileSize: Number,
+    fileName: String,
     read: {
         type: Boolean,
         default: false,
-        index: true,
     },
     readAt: Date,
     deleted: {
         type: Boolean,
         default: false,
     },
+    deletedAt: Date,
+    deletedFor: [{
+            type: mongoose_1.Schema.Types.ObjectId,
+            ref: 'User',
+        }],
     reactions: [{
             user: {
                 type: mongoose_1.Schema.Types.ObjectId,
                 ref: 'User',
             },
             emoji: String,
+            createdAt: {
+                type: Date,
+                default: Date.now,
+            },
         }],
+    replyTo: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'Message',
+    },
+    gameData: {
+        sessionId: {
+            type: mongoose_1.Schema.Types.ObjectId,
+            ref: 'GameSession',
+        },
+        gameId: {
+            type: mongoose_1.Schema.Types.ObjectId,
+            ref: 'Game',
+        },
+        gameName: String,
+        gameThumbnail: String,
+        status: {
+            type: String,
+            enum: ['pending', 'accepted', 'declined', 'cancelled', 'completed', 'expired'],
+        },
+        winnerId: {
+            type: mongoose_1.Schema.Types.ObjectId,
+            ref: 'User',
+        },
+        winnerName: String,
+    },
+    systemData: {
+        action: String,
+        relatedId: String,
+        metadata: mongoose_1.Schema.Types.Mixed,
+    },
 }, {
     timestamps: true,
 });
 // Indexes
 messageSchema.index({ match: 1, createdAt: -1 });
-messageSchema.index({ sender: 1, createdAt: -1 });
-messageSchema.index({ receiver: 1, read: 1 });
+messageSchema.index({ sender: 1, receiver: 1 });
+messageSchema.index({ 'gameData.sessionId': 1 });
+// Virtual for id
+messageSchema.virtual('id').get(function () {
+    return this._id.toHexString();
+});
+messageSchema.set('toJSON', {
+    virtuals: true,
+});
 exports.Message = mongoose_1.default.model('Message', messageSchema);
 //# sourceMappingURL=Message.js.map

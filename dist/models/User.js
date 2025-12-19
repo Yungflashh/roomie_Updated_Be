@@ -37,8 +37,43 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.User = void 0;
+// src/models/User.ts
 const mongoose_1 = __importStar(require("mongoose"));
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
+// Update the SocialLinkSchema
+const SocialLinkSchema = new mongoose_1.Schema({
+    platform: {
+        type: String,
+        enum: ['instagram', 'facebook', 'twitter', 'linkedin', 'tiktok'],
+        required: true,
+    },
+    username: {
+        type: String,
+        required: true,
+    },
+    url: {
+        type: String,
+        required: true,
+    },
+    connected: {
+        type: Boolean,
+        default: true,
+    },
+    connectedAt: {
+        type: Date,
+        default: Date.now,
+    },
+    profileId: String,
+    accessToken: {
+        type: String,
+        select: false,
+    },
+    refreshToken: {
+        type: String,
+        select: false,
+    },
+    profilePhoto: String,
+}, { _id: false });
 const userSchema = new mongoose_1.Schema({
     email: {
         type: String,
@@ -94,7 +129,7 @@ const userSchema = new mongoose_1.Schema({
         budget: {
             min: { type: Number, default: 0 },
             max: { type: Number, default: 100000 },
-            currency: { type: String, default: 'USD' },
+            currency: { type: String, default: 'NGN' },
         },
         moveInDate: Date,
         leaseDuration: Number,
@@ -141,6 +176,10 @@ const userSchema = new mongoose_1.Schema({
     },
     languages: {
         type: [String],
+        default: [],
+    },
+    socialLinks: {
+        type: [SocialLinkSchema],
         default: [],
     },
     verified: {
@@ -230,6 +269,7 @@ const userSchema = new mongoose_1.Schema({
 }, {
     timestamps: true,
     toJSON: {
+        virtuals: true,
         transform: (_doc, ret) => {
             if (ret.password)
                 delete ret.password;
@@ -240,13 +280,188 @@ const userSchema = new mongoose_1.Schema({
             return ret;
         },
     },
+    toObject: {
+        virtuals: true,
+    },
 });
-// Indexes for performance
+function calculateProfileCompletion(user) {
+    const fields = [
+        // Required fields
+        {
+            name: 'firstName',
+            label: 'First Name',
+            weight: 10,
+            check: (u) => !!u.firstName && u.firstName.trim().length > 0,
+            required: true,
+        },
+        {
+            name: 'lastName',
+            label: 'Last Name',
+            weight: 10,
+            check: (u) => !!u.lastName && u.lastName.trim().length > 0,
+            required: true,
+        },
+        {
+            name: 'profilePhoto',
+            label: 'Profile Photo',
+            weight: 15,
+            check: (u) => !!u.profilePhoto && u.profilePhoto.length > 0,
+            required: true,
+        },
+        {
+            name: 'dateOfBirth',
+            label: 'Date of Birth',
+            weight: 10,
+            check: (u) => !!u.dateOfBirth,
+            required: true,
+        },
+        {
+            name: 'gender',
+            label: 'Gender',
+            weight: 5,
+            check: (u) => !!u.gender,
+            required: true,
+        },
+        {
+            name: 'location',
+            label: 'Location',
+            weight: 10,
+            check: (u) => !!(u.location?.city && u.location?.state),
+            required: true,
+        },
+        {
+            name: 'budget',
+            label: 'Budget',
+            weight: 10,
+            check: (u) => !!(u.preferences?.budget?.min !== undefined && u.preferences?.budget?.max > 0),
+            required: true,
+        },
+        // Optional fields
+        {
+            name: 'bio',
+            label: 'Bio',
+            weight: 5,
+            check: (u) => !!u.bio && u.bio.trim().length >= 10,
+            required: false,
+        },
+        {
+            name: 'occupation',
+            label: 'Occupation',
+            weight: 5,
+            check: (u) => !!u.occupation && u.occupation.trim().length > 0,
+            required: false,
+        },
+        {
+            name: 'interests',
+            label: 'Interests',
+            weight: 5,
+            check: (u) => u.interests && u.interests.length >= 3,
+            required: false,
+        },
+        {
+            name: 'lifestyle',
+            label: 'Lifestyle Preferences',
+            weight: 5,
+            check: (u) => !!(u.lifestyle?.sleepSchedule && u.lifestyle?.cleanliness && u.lifestyle?.guestFrequency),
+            required: false,
+        },
+        {
+            name: 'photos',
+            label: 'Additional Photos',
+            weight: 5,
+            check: (u) => u.photos && u.photos.length >= 2,
+            required: false,
+        },
+        {
+            name: 'phoneNumber',
+            label: 'Phone Number',
+            weight: 5,
+            check: (u) => !!u.phoneNumber && u.phoneNumber.length >= 10,
+            required: false,
+        },
+    ];
+    let totalWeight = 0;
+    let completedWeight = 0;
+    const missingFields = [];
+    const completedFields = [];
+    let allRequiredComplete = true;
+    for (const field of fields) {
+        totalWeight += field.weight;
+        if (field.check(user)) {
+            completedWeight += field.weight;
+            completedFields.push(field.name);
+        }
+        else {
+            missingFields.push(field.label);
+            if (field.required) {
+                allRequiredComplete = false;
+            }
+        }
+    }
+    const percentage = Math.round((completedWeight / totalWeight) * 100);
+    const isComplete = allRequiredComplete && percentage >= 70;
+    return {
+        isComplete,
+        percentage,
+        missingFields,
+        completedFields,
+    };
+}
+// =====================
+// VIRTUAL FIELDS
+// =====================
+// Calculate age from dateOfBirth
+userSchema.virtual('age').get(function () {
+    if (!this.dateOfBirth)
+        return undefined;
+    const today = new Date();
+    const birthDate = new Date(this.dateOfBirth);
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+    }
+    return age;
+});
+// Profile completion check
+userSchema.virtual('isProfileComplete').get(function () {
+    const completion = calculateProfileCompletion(this);
+    return completion.isComplete;
+});
+// Profile completion percentage
+userSchema.virtual('profileCompletionPercentage').get(function () {
+    const completion = calculateProfileCompletion(this);
+    return completion.percentage;
+});
+// Missing profile fields
+userSchema.virtual('missingProfileFields').get(function () {
+    const completion = calculateProfileCompletion(this);
+    return completion.missingFields;
+});
+// =====================
+// METHODS
+// =====================
+// Get profile completion details (callable method)
+userSchema.methods.getProfileCompletion = function () {
+    return calculateProfileCompletion(this);
+};
+// Compare password method
+userSchema.methods.comparePassword = async function (candidatePassword) {
+    if (!this.password)
+        return false;
+    return bcryptjs_1.default.compare(candidatePassword, this.password);
+};
+// =====================
+// INDEXES
+// =====================
 userSchema.index({ 'location.coordinates': '2dsphere' });
 userSchema.index({ email: 1 });
 userSchema.index({ isActive: 1 });
 userSchema.index({ 'subscription.plan': 1 });
 userSchema.index({ createdAt: -1 });
+// =====================
+// MIDDLEWARE
+// =====================
 // Hash password before saving
 userSchema.pre('save', async function () {
     if (!this.isModified('password') || !this.password) {
@@ -260,11 +475,5 @@ userSchema.pre('save', async function () {
         throw error;
     }
 });
-// Compare password method
-userSchema.methods.comparePassword = async function (candidatePassword) {
-    if (!this.password)
-        return false;
-    return bcryptjs_1.default.compare(candidatePassword, this.password);
-};
 exports.User = mongoose_1.default.model('User', userSchema);
 //# sourceMappingURL=User.js.map

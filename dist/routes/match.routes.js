@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+// src/routes/match.routes.ts
 const express_1 = require("express");
 const match_controller_1 = __importDefault(require("../controllers/match.controller"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
@@ -17,6 +18,18 @@ router.use(auth_middleware_1.authenticate);
  * @access  Private
  */
 router.get('/discover', match_controller_1.default.getPotentialMatches);
+/**
+ * @route   GET /api/v1/matches/likes/received
+ * @desc    Get users who liked current user (requests received)
+ * @access  Private
+ */
+router.get('/likes/received', match_controller_1.default.getLikes);
+/**
+ * @route   GET /api/v1/matches/likes/sent
+ * @desc    Get users current user has liked (requests sent)
+ * @access  Private
+ */
+router.get('/likes/sent', match_controller_1.default.getSentLikes);
 /**
  * @route   POST /api/v1/matches/like/:targetUserId
  * @desc    Like a user (swipe right)
@@ -47,11 +60,5 @@ router.get('/:matchId', match_controller_1.default.getMatchDetails);
  * @access  Private
  */
 router.delete('/:matchId', match_controller_1.default.unmatch);
-/**
- * @route   GET /api/v1/matches/likes/received
- * @desc    Get users who liked current user
- * @access  Private
- */
-router.get('/likes/received', match_controller_1.default.getLikes);
 exports.default = router;
 //# sourceMappingURL=match.routes.js.map

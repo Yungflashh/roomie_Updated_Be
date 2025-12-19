@@ -13,14 +13,21 @@ class MessageController {
         try {
             const userId = req.user?.userId;
             const { matchId, receiverId, type, content } = req.body;
-            let mediaUrl, mediaHash, thumbnailUrl, metadata;
+            let mediaUrl;
+            let thumbnail;
+            let metadata;
             if (req.file) {
                 mediaUrl = `/uploads/chat/${req.file.filename}`;
-                mediaHash = req.mediaHash;
                 if (type === 'image' || type === 'video') {
                     metadata = {
-                        size: req.file.size,
-                        dimensions: req.dimensions,
+                        fileSize: req.file.size,
+                        fileName: req.file.filename,
+                    };
+                }
+                if (type === 'video' || type === 'audio') {
+                    metadata = {
+                        ...metadata,
+                        duration: req.duration,
                     };
                 }
             }
@@ -31,8 +38,7 @@ class MessageController {
                 type,
                 content,
                 mediaUrl,
-                mediaHash: mediaHash?.md5,
-                thumbnailUrl,
+                thumbnail,
                 metadata,
             });
             res.status(201).json({

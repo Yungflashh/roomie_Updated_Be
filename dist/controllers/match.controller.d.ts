@@ -6,6 +6,10 @@ declare class MatchController {
      */
     getPotentialMatches(req: AuthRequest, res: Response): Promise<void>;
     /**
+     * Get sent likes (users I have liked)
+     */
+    getSentLikes(req: AuthRequest, res: Response): Promise<void>;
+    /**
      * Like a user
      */
     likeUser(req: AuthRequest, res: Response): Promise<void>;

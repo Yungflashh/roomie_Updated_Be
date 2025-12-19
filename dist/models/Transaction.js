@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Notification = exports.Transaction = void 0;
+// src/models/Transaction.ts
 const mongoose_1 = __importStar(require("mongoose"));
 const transactionSchema = new mongoose_1.Schema({
     user: {
@@ -93,7 +94,7 @@ const notificationSchema = new mongoose_1.Schema({
     },
     type: {
         type: String,
-        enum: ['match', 'message', 'like', 'challenge', 'achievement', 'system', 'location_nearby'],
+        enum: ['match', 'message', 'like', 'request', 'request_accepted', 'listing_like', 'listing_view', 'challenge', 'achievement', 'system', 'reminder', 'location_nearby'],
         required: true,
         index: true,
     },
@@ -106,7 +107,7 @@ const notificationSchema = new mongoose_1.Schema({
         required: true,
     },
     data: mongoose_1.Schema.Types.Mixed,
-    imageUrl: String,
+    image: String,
     read: {
         type: Boolean,
         default: false,
