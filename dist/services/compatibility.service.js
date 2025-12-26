@@ -44,6 +44,10 @@ class CompatibilityService {
      * Calculate budget compatibility
      */
     calculateBudgetScore(user1, user2) {
+        // Add null checks for preferences and budget
+        if (!user1.preferences?.budget || !user2.preferences?.budget) {
+            return 50; // Default score if budget info is missing
+        }
         const budget1 = user1.preferences.budget;
         const budget2 = user2.preferences.budget;
         // Check overlap in budget ranges
@@ -60,6 +64,10 @@ class CompatibilityService {
      * Calculate location proximity score
      */
     calculateLocationScore(user1, user2) {
+        // Add null checks for location
+        if (!user1.location?.coordinates || !user2.location?.coordinates) {
+            return 50; // Default score if location is missing
+        }
         const [lon1, lat1] = user1.location.coordinates;
         const [lon2, lat2] = user2.location.coordinates;
         // Calculate distance using Haversine formula
@@ -81,6 +89,10 @@ class CompatibilityService {
      * Calculate lifestyle compatibility
      */
     calculateLifestyleScore(user1, user2) {
+        // Add null checks for lifestyle object - THIS IS THE KEY FIX
+        if (!user1.lifestyle || !user2.lifestyle) {
+            return 50; // Default score if lifestyle info is missing
+        }
         let score = 0;
         let factors = 0;
         const lifestyle1 = user1.lifestyle;
@@ -133,19 +145,24 @@ class CompatibilityService {
      * Calculate shared interests score
      */
     calculateInterestsScore(user1, user2) {
-        const interests1 = new Set(user1.interests);
-        const interests2 = new Set(user2.interests);
+        // Add null checks for interests
+        const interests1 = new Set(user1.interests || []);
+        const interests2 = new Set(user2.interests || []);
         if (interests1.size === 0 && interests2.size === 0)
             return 50;
         const intersection = new Set([...interests1].filter((x) => interests2.has(x)));
         const union = new Set([...interests1, ...interests2]);
         // Jaccard similarity
-        return (intersection.size / union.size) * 100;
+        return union.size > 0 ? (intersection.size / union.size) * 100 : 50;
     }
     /**
      * Calculate preferences compatibility
      */
     calculatePreferencesScore(user1, user2) {
+        // Add null check for preferences
+        if (!user1.preferences || !user2.preferences) {
+            return 50;
+        }
         let score = 0;
         let factors = 0;
         const pref1 = user1.preferences;
@@ -201,13 +218,13 @@ class CompatibilityService {
         const age2 = (0, dayjs_1.default)().diff((0, dayjs_1.default)(user2.dateOfBirth), 'year');
         // Check if within preferred age range
         let score = 100;
-        if (user1.preferences.ageRange) {
+        if (user1.preferences?.ageRange) {
             if (age2 < user1.preferences.ageRange.min ||
                 age2 > user1.preferences.ageRange.max) {
                 score -= 50;
             }
         }
-        if (user2.preferences.ageRange) {
+        if (user2.preferences?.ageRange) {
             if (age1 < user2.preferences.ageRange.min ||
                 age1 > user2.preferences.ageRange.max) {
                 score -= 50;

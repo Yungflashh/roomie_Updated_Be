@@ -17,6 +17,7 @@ const notification_routes_1 = __importDefault(require("./notification.routes"));
 const roommate_routes_1 = __importDefault(require("./roommate.routes"));
 const roommateFeatures_routes_1 = __importDefault(require("./roommateFeatures.routes"));
 const roommateGroup_routes_1 = __importDefault(require("./roommateGroup.routes"));
+const admin_routes_1 = __importDefault(require("./admin.routes"));
 const router = (0, express_1.Router)();
 // API v1 routes
 router.use('/auth', auth_routes_1.default);
@@ -32,6 +33,7 @@ router.use('/notifications', notification_routes_1.default);
 router.use('/roommates', roommate_routes_1.default);
 router.use('/roommate-features', roommateFeatures_routes_1.default);
 router.use('/roommate-groups', roommateGroup_routes_1.default);
+router.use('/admin', admin_routes_1.default);
 // Health check
 router.get('/health', (req, res) => {
     res.status(200).json({
