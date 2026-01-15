@@ -3,9 +3,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-// src/services/game.service.ts
+// src/services/game.service.ts - COMPLETE WITH POINTS SYSTEM
 const mongoose_1 = __importDefault(require("mongoose"));
 const models_1 = require("../models");
+const points_service_1 = __importDefault(require("./points.service"));
 const socket_config_1 = require("../config/socket.config");
 const logger_1 = __importDefault(require("../utils/logger"));
 // Trivia questions database
@@ -96,11 +97,83 @@ class GameService {
         return game;
     }
     /**
-     * Send game invitation to a match
+     * Get games available for user (based on level)
+     */
+    async getAvailableGamesForUser(userId) {
+        const user = await models_1.User.findById(userId).select('gamification');
+        if (!user)
+            throw new Error('User not found');
+        const allGames = await models_1.Game.find({ isActive: true }).sort({ levelRequired: 1, name: 1 });
+        const available = [];
+        const locked = [];
+        for (const game of allGames) {
+            if (game.levelRequired <= user.gamification.level) {
+                available.push(game);
+            }
+            else {
+                locked.push({
+                    ...game.toObject(),
+                    reason: `Requires Level ${game.levelRequired}`,
+                });
+            }
+        }
+        return { available, locked };
+    }
+    /**
+     * Check if user can play game (level + points)
+     */
+    async canUserPlayGame(userId, gameId) {
+        const [user, game] = await Promise.all([
+            models_1.User.findById(userId).select('gamification subscription'),
+            models_1.Game.findById(gameId),
+        ]);
+        if (!user)
+            throw new Error('User not found');
+        if (!game)
+            throw new Error('Game not found');
+        // Check level requirement
+        if (user.gamification.level < game.levelRequired) {
+            return {
+                canPlay: false,
+                reason: `Requires Level ${game.levelRequired}. You are Level ${user.gamification.level}`,
+                requiredLevel: game.levelRequired,
+                userLevel: user.gamification.level,
+            };
+        }
+        // Calculate points cost (with premium discount)
+        const pointsCost = await points_service_1.default.calculateGameCost(userId, gameId);
+        // Check points requirement
+        if (user.gamification.points < pointsCost) {
+            return {
+                canPlay: false,
+                reason: `Requires ${pointsCost} points. You have ${user.gamification.points}`,
+                requiredPoints: pointsCost,
+                userPoints: user.gamification.points,
+            };
+        }
+        return {
+            canPlay: true,
+            userLevel: user.gamification.level,
+            userPoints: user.gamification.points,
+            requiredPoints: pointsCost,
+        };
+    }
+    /**
+     * Send game invitation (with points check)
      */
     async sendGameInvitation(gameId, inviterId, invitedUserId, matchId) {
         // Verify game exists
         const game = await this.getGameById(gameId);
+        // Check if inviter can play
+        const inviterCheck = await this.canUserPlayGame(inviterId, gameId);
+        if (!inviterCheck.canPlay) {
+            throw new Error(inviterCheck.reason || 'Cannot play this game');
+        }
+        // Check if invited user can play
+        const invitedCheck = await this.canUserPlayGame(invitedUserId, gameId);
+        if (!invitedCheck.canPlay) {
+            throw new Error(`Invited user: ${invitedCheck.reason || 'cannot play this game'}`);
+        }
         // Verify match exists and both users are part of it
         const match = await models_1.Match.findById(matchId);
         if (!match) {
@@ -123,9 +196,11 @@ class GameService {
         if (existingInvitation) {
             throw new Error('There is already a pending game invitation');
         }
-        // Generate game data based on game type
+        // Calculate points cost
+        const pointsCost = await points_service_1.default.calculateGameCost(inviterId, gameId);
+        // Generate game data
         const gameData = this.generateGameData(game.name);
-        // Create game session with pending status
+        // Create game session
         const sessionDoc = new models_1.GameSession({
             game: new mongoose_1.default.Types.ObjectId(gameId),
             match: new mongoose_1.default.Types.ObjectId(matchId),
@@ -138,18 +213,19 @@ class GameService {
             invitedBy: new mongoose_1.default.Types.ObjectId(inviterId),
             invitedUser: new mongoose_1.default.Types.ObjectId(invitedUserId),
             status: 'pending',
-            expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes expiry
+            expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
+            pointsCost,
             gameData,
         });
         const session = await sessionDoc.save();
         // Populate for response
         await session.populate([
-            { path: 'game', select: 'name description thumbnail category difficulty pointsReward' },
+            { path: 'game', select: 'name description thumbnail category difficulty pointsReward pointsCost levelRequired' },
             { path: 'invitedBy', select: 'firstName lastName profilePhoto' },
         ]);
         // Get inviter details
         const inviter = await models_1.User.findById(inviterId).select('firstName lastName profilePhoto');
-        // Create game invitation message in chat
+        // Create game invitation message
         const inviteMessage = await models_1.Message.create({
             match: matchId,
             sender: inviterId,
@@ -172,10 +248,10 @@ class GameService {
             invitedBy: inviter,
             matchId,
             expiresAt: session.expiresAt,
+            pointsCost,
         });
-        // Emit message to receiver
         (0, socket_config_1.emitNewMessage)(matchId, inviteMessage.toObject(), inviterId, invitedUserId);
-        logger_1.default.info(`Game invitation sent: ${session._id} from ${inviterId} to ${invitedUserId}`);
+        logger_1.default.info(`Game invitation sent: ${session._id}, points cost: ${pointsCost}`);
         return session;
     }
     /**
@@ -244,30 +320,67 @@ class GameService {
         return session;
     }
     /**
-     * Start game session
+     * Start game session (deduct points from both players)
      */
     async startGameSession(sessionId, userId) {
         const session = await models_1.GameSession.findById(sessionId)
             .populate('game')
-            .populate('players.user', 'firstName lastName profilePhoto');
-        if (!session) {
+            .populate('players.user', 'firstName lastName profilePhoto gamification');
+        if (!session)
             throw new Error('Game session not found');
-        }
         const game = session.game;
         // Verify user is in the session
         const isPlayer = session.players.some(p => {
             const userObj = p.user;
-            const odId = userObj._id ? userObj._id.toString() : userObj.toString();
-            return odId === userId;
+            const playerId = userObj._id ? userObj._id.toString() : userObj.toString();
+            return playerId === userId;
         });
-        if (!isPlayer) {
+        if (!isPlayer)
             throw new Error('You are not part of this game session');
-        }
-        if (session.status !== 'waiting') {
+        if (session.status !== 'waiting')
             throw new Error('Game cannot be started');
-        }
         if (session.players.length < game.minPlayers) {
             throw new Error(`Minimum ${game.minPlayers} players required`);
+        }
+        // Deduct points from all players
+        const pointsCost = session.pointsCost || game.pointsCost;
+        for (const player of session.players) {
+            const playerObj = player.user;
+            const playerId = playerObj._id ? playerObj._id.toString() : playerObj.toString();
+            try {
+                await points_service_1.default.deductPoints({
+                    userId: playerId,
+                    amount: pointsCost,
+                    type: 'game_entry',
+                    reason: `Game entry: ${game.name}`,
+                    metadata: {
+                        gameId: game._id,
+                        gameName: game.name,
+                        sessionId: session._id,
+                    },
+                });
+                logger_1.default.info(`Deducted ${pointsCost} points from player ${playerId} for game ${game.name}`);
+            }
+            catch (error) {
+                // Refund points to players who already paid
+                for (const paidPlayer of session.players) {
+                    const paidPlayerObj = paidPlayer.user;
+                    const paidPlayerId = paidPlayerObj._id ? paidPlayerObj._id.toString() : paidPlayerObj.toString();
+                    if (paidPlayerId === playerId)
+                        break;
+                    await points_service_1.default.addPoints({
+                        userId: paidPlayerId,
+                        amount: pointsCost,
+                        type: 'refund',
+                        reason: `Game cancelled: ${game.name}`,
+                        metadata: {
+                            gameId: game._id,
+                            sessionId: session._id,
+                        },
+                    });
+                }
+                throw new Error(`Player has insufficient points to start game`);
+            }
         }
         session.status = 'active';
         session.startedAt = new Date();
@@ -280,6 +393,8 @@ class GameService {
             gameData: session.gameData,
             startedAt: session.startedAt,
         });
+        // Increment game play count
+        await models_1.Game.findByIdAndUpdate(game._id, { $inc: { playCount: 1 } });
         logger_1.default.info(`Game session started: ${sessionId}`);
         return session;
     }
@@ -298,18 +413,17 @@ class GameService {
         if (!player) {
             throw new Error('You are not in this game');
         }
-        logger_1.default.info(`Submit answer - Session: ${sessionId}, questionIndex: ${questionIndex}, gameData: ${JSON.stringify(session.gameData)}`);
+        logger_1.default.info(`Submit answer - Session: ${sessionId}, questionIndex: ${questionIndex}`);
         const question = session.gameData?.questions?.[questionIndex];
         if (!question) {
-            logger_1.default.error(`Question not found - gameData.questions length: ${session.gameData?.questions?.length || 0}, questionIndex: ${questionIndex}`);
+            logger_1.default.error(`Question not found - questionIndex: ${questionIndex}`);
             throw new Error('Question not found');
         }
         const correct = answer === question.correctAnswer;
         // Calculate points based on correctness and time
         let points = 0;
         if (correct) {
-            // Base points + time bonus
-            const timeBonus = Math.max(0, 100 - timeSpent); // Max 100 bonus points for quick answers
+            const timeBonus = Math.max(0, 100 - timeSpent);
             points = 100 + Math.floor(timeBonus);
         }
         // Record answer
@@ -349,12 +463,6 @@ class GameService {
             logger_1.default.error(`Session not found: ${sessionId}`);
             throw new Error('Game session not found');
         }
-        logger_1.default.info(`Session status: ${session.status}`);
-        logger_1.default.info(`Players: ${JSON.stringify(session.players.map(p => ({
-            oderId: p.user.toString(),
-            score: p.score,
-            completedAt: p.completedAt
-        })))}`);
         if (session.status !== 'active') {
             logger_1.default.error(`Game is not active, status: ${session.status}`);
             throw new Error('Game is not active');
@@ -363,7 +471,6 @@ class GameService {
             const odId = p.user._id ? p.user._id.toString() : p.user.toString();
             return odId === userId;
         });
-        logger_1.default.info(`Player index: ${playerIndex}`);
         if (playerIndex === -1) {
             logger_1.default.error(`Player ${userId} not found in session`);
             throw new Error('You are not in this game');
@@ -385,8 +492,7 @@ class GameService {
             const correct = ans.answer === question.correctAnswer;
             let points = 0;
             if (correct) {
-                // Base points + time bonus (faster = more points)
-                const timeBonus = Math.max(0, 100 - ans.timeSpent * 5); // 5 points per second penalty
+                const timeBonus = Math.max(0, 100 - ans.timeSpent * 5);
                 points = 100 + Math.floor(timeBonus);
             }
             totalScore += points;
@@ -417,23 +523,13 @@ class GameService {
             completedAt: player.completedAt,
             correctCount: results.filter(r => r.correct).length,
         });
-        logger_1.default.info(`Score update emitted for player ${userId}`);
         // Check if all players have completed
-        // Need to re-fetch to get latest state
         const updatedSession = await models_1.GameSession.findById(sessionId);
         const allCompleted = updatedSession?.players.every(p => p.completedAt);
-        logger_1.default.info(`========== COMPLETION CHECK ==========`);
         logger_1.default.info(`All players completed: ${allCompleted}`);
-        logger_1.default.info(`Players completion status: ${JSON.stringify(updatedSession?.players.map(p => ({
-            oderId: p.user.toString(),
-            completedAt: p.completedAt ? 'YES' : 'NO'
-        })))}`);
         if (allCompleted) {
             logger_1.default.info(`All players completed! Finalizing game...`);
             await this.finalizeGameSession(sessionId);
-        }
-        else {
-            logger_1.default.info(`Waiting for other players to complete`);
         }
         logger_1.default.info(`========== END SUBMIT ALL ANSWERS ==========`);
         return {
@@ -443,28 +539,16 @@ class GameService {
         };
     }
     /**
-     * Finalize game session when all players complete
+     * Finalize game session (award points to winner)
      */
     async finalizeGameSession(sessionId) {
-        logger_1.default.info(`========== FINALIZE GAME SESSION ==========`);
-        logger_1.default.info(`Session: ${sessionId}`);
+        logger_1.default.info(`========== FINALIZE GAME SESSION WITH POINTS ==========`);
         const session = await models_1.GameSession.findById(sessionId)
             .populate('game')
             .populate('players.user', 'firstName lastName profilePhoto');
-        if (!session) {
-            logger_1.default.error(`Session not found: ${sessionId}`);
+        if (!session || session.status !== 'active')
             return;
-        }
-        logger_1.default.info(`Session status: ${session.status}`);
-        if (session.status !== 'active') {
-            logger_1.default.info(`Session is not active (${session.status}), skipping finalization`);
-            return;
-        }
-        logger_1.default.info(`Players scores: ${JSON.stringify(session.players.map(p => ({
-            oderId: p.user._id || p.user,
-            firstName: p.user.firstName,
-            score: p.score
-        })))}`);
+        const game = session.game;
         // Calculate rankings
         const sortedPlayers = [...session.players].sort((a, b) => b.score - a.score);
         sortedPlayers.forEach((player, index) => {
@@ -481,25 +565,57 @@ class GameService {
                 sessionPlayer.rank = index + 1;
             }
         });
-        // Determine winner (highest score)
+        // Determine winner and award points
         const winner = sortedPlayers[0];
-        logger_1.default.info(`Winner determined: ${winner ? `${winner.user.firstName} with score ${winner.score}` : 'No winner (tie or no scores)'}`);
         if (winner && winner.score > 0) {
             const winnerUserId = winner.user._id || winner.user;
             session.winner = winnerUserId;
-            // Award points to winner
-            const game = session.game;
-            if (game.pointsReward) {
-                await models_1.User.findByIdAndUpdate(winnerUserId, {
-                    $inc: { points: game.pointsReward },
+            // Award winner points
+            const pointsReward = game.pointsReward;
+            if (pointsReward > 0) {
+                const pointsResult = await points_service_1.default.addPoints({
+                    userId: winnerUserId.toString(),
+                    amount: pointsReward,
+                    type: 'game_reward',
+                    reason: `Won ${game.name}!`,
+                    metadata: {
+                        gameId: game._id,
+                        gameName: game.name,
+                        sessionId: session._id,
+                        score: winner.score,
+                        rank: 1,
+                    },
                 });
-                logger_1.default.info(`Awarded ${game.pointsReward} points to winner ${winnerUserId}`);
+                winner.pointsEarned = pointsReward;
+                session.pointsAwarded = pointsReward;
+                logger_1.default.info(`Awarded ${pointsReward} points to winner. Level up: ${pointsResult.leveledUp}`);
+            }
+        }
+        // Award consolation points to other players (50% of reward)
+        const consolationPoints = Math.floor((game.pointsReward || 0) * 0.5);
+        if (consolationPoints > 0) {
+            for (let i = 1; i < sortedPlayers.length; i++) {
+                const player = sortedPlayers[i];
+                const playerId = player.user._id || player.user;
+                await points_service_1.default.addPoints({
+                    userId: playerId.toString(),
+                    amount: consolationPoints,
+                    type: 'game_reward',
+                    reason: `Participated in ${game.name}`,
+                    metadata: {
+                        gameId: game._id,
+                        gameName: game.name,
+                        sessionId: session._id,
+                        score: player.score,
+                        rank: player.rank,
+                    },
+                });
+                player.pointsEarned = consolationPoints;
             }
         }
         session.status = 'completed';
         session.endedAt = new Date();
         await session.save();
-        logger_1.default.info(`Session saved with status: completed`);
         // Update game invite message
         const winnerUser = winner ? await models_1.User.findById(winner.user._id || winner.user).select('firstName lastName') : null;
         await models_1.Message.updateMany({ 'gameData.sessionId': sessionId }, {
@@ -507,30 +623,30 @@ class GameService {
             'gameData.winnerId': winner ? (winner.user._id || winner.user) : undefined,
             'gameData.winnerName': winnerUser ? `${winnerUser.firstName} ${winnerUser.lastName}` : undefined,
         });
-        // Emit game ended to all players
-        const gameEndedData = {
+        // Emit game ended
+        (0, socket_config_1.emitGameEnded)(sessionId, {
             sessionId,
             winner: winner ? {
                 _id: winner.user._id || winner.user,
                 firstName: winner.user.firstName,
                 lastName: winner.user.lastName,
                 score: winner.score,
+                pointsEarned: winner.pointsEarned,
             } : null,
             players: session.players.map(p => ({
                 user: p.user,
                 score: p.score,
                 rank: p.rank,
+                pointsEarned: p.pointsEarned,
                 correctCount: p.answers?.filter(a => a.correct).length || 0,
             })),
             endedAt: session.endedAt,
-        };
-        logger_1.default.info(`Emitting game:ended event with data: ${JSON.stringify(gameEndedData)}`);
-        (0, socket_config_1.emitGameEnded)(sessionId, gameEndedData);
-        logger_1.default.info(`✅ Game session finalized: ${sessionId}`);
-        logger_1.default.info(`========== END FINALIZE GAME SESSION ==========`);
+            pointsAwarded: session.pointsAwarded,
+        });
+        logger_1.default.info(`✅ Game session finalized with points awarded`);
     }
     /**
-     * Complete game session (legacy - now just returns session status)
+     * Complete game session
      */
     async completeGameSession(sessionId) {
         const session = await models_1.GameSession.findById(sessionId)
@@ -540,7 +656,6 @@ class GameService {
         if (!session) {
             throw new Error('Game session not found');
         }
-        // Just return the current session state
         return session;
     }
     /**
@@ -586,9 +701,7 @@ class GameService {
         }
         session.status = 'cancelled';
         await session.save();
-        // Update message
         await models_1.Message.updateMany({ 'gameData.sessionId': sessionId }, { 'gameData.status': 'cancelled' });
-        // Notify invited user
         if (session.invitedUser) {
             (0, socket_config_1.emitGameInvitationResponse)(session.invitedUser.toString(), {
                 sessionId,
@@ -676,7 +789,6 @@ class GameService {
     generateGameData(gameName) {
         switch (gameName) {
             case 'Trivia Master': {
-                // Pick random questions from different categories
                 const allQuestions = [];
                 const categories = Object.keys(triviaQuestions);
                 categories.forEach(category => {
@@ -686,14 +798,13 @@ class GameService {
                     }));
                     allQuestions.push(...categoryQuestions);
                 });
-                // Shuffle and pick 10 questions
                 const shuffled = allQuestions.sort(() => Math.random() - 0.5);
                 const selectedQuestions = shuffled.slice(0, 10);
                 return {
                     questions: selectedQuestions,
                     totalRounds: 10,
                     currentRound: 0,
-                    timeLimit: 15, // seconds per question
+                    timeLimit: 15,
                 };
             }
             case 'Word Scramble': {
@@ -734,7 +845,6 @@ class GameService {
                 };
             }
             case 'Memory Match': {
-                // Generate pairs of items
                 const items = ['🍎', '🍊', '🍋', '🍇', '🍓', '🍒', '🥝', '🍑'];
                 const pairs = [...items, ...items];
                 const shuffledPairs = pairs.sort(() => Math.random() - 0.5);
@@ -744,7 +854,7 @@ class GameService {
                         emoji,
                     })),
                     totalPairs: items.length,
-                    timeLimit: 60, // total game time
+                    timeLimit: 60,
                 };
             }
             default:
@@ -757,7 +867,6 @@ class GameService {
             const j = Math.floor(Math.random() * (i + 1));
             [arr[i], arr[j]] = [arr[j], arr[i]];
         }
-        // Make sure it's actually scrambled
         if (arr.join('') === word) {
             return this.scrambleWord(word);
         }
@@ -788,7 +897,6 @@ class GameService {
                 num2 = 1;
                 answer = 2;
         }
-        // Generate wrong options
         const wrongOptions = new Set();
         while (wrongOptions.size < 3) {
             const wrong = answer + (Math.floor(Math.random() * 20) - 10);

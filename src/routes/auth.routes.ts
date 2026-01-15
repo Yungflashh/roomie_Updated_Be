@@ -8,7 +8,11 @@ import {
   refreshTokenValidation,
 } from '../validation/schemas';
 
+
 const router = Router();
+
+
+
 
 /**
  * @route   POST /api/v1/auth/register

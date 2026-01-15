@@ -2,7 +2,7 @@ import { Response } from 'express';
 import { AuthRequest } from '../types';
 declare class MatchController {
     /**
-     * Get potential matches
+     * Get potential matches (with distance sorting support)
      */
     getPotentialMatches(req: AuthRequest, res: Response): Promise<void>;
     /**
@@ -30,7 +30,7 @@ declare class MatchController {
      */
     unmatch(req: AuthRequest, res: Response): Promise<void>;
     /**
-     * Get likes
+     * Get likes (users who liked current user)
      */
     getLikes(req: AuthRequest, res: Response): Promise<void>;
 }

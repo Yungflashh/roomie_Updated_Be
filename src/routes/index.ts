@@ -13,6 +13,8 @@ import roomatesRoutes from './roommate.routes';
 import roommateFeaturesRoutes from './roommateFeatures.routes';
 import roommateGroupRoutes from './roommateGroup.routes';
 import adminRoutes from "./admin.routes"
+import pointsRoutes from './points.routes';
+
 
 
 
@@ -35,6 +37,8 @@ router.use('/roommates', roomatesRoutes);
 router.use('/roommate-features', roommateFeaturesRoutes);
 router.use('/roommate-groups', roommateGroupRoutes);
 router.use('/admin', adminRoutes);
+router.use('/points', pointsRoutes);
+
 
 
 

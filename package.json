@@ -10,6 +10,7 @@
     "lint": "eslint . --ext .ts",
     "backup": "ts-node src/scripts/backup.ts",
     "seed": "ts-node scripts/seed.ts",
+    "seedGames": "ts-node scripts/seedGames.ts",
     "seedAdmin": "ts-node scripts/createAdmin.ts"
   },
   "keywords": [],

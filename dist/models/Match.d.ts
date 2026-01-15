@@ -10,6 +10,8 @@ export interface IMatchDocument extends Document {
         user1: number;
         user2: number;
     };
+    initiatedBy?: mongoose.Types.ObjectId;
+    pointsCost?: number;
 }
 export declare const Match: mongoose.Model<IMatchDocument, {}, {}, {}, mongoose.Document<unknown, {}, IMatchDocument, {}, mongoose.DefaultSchemaOptions> & IMatchDocument & Required<{
     _id: mongoose.Types.ObjectId;

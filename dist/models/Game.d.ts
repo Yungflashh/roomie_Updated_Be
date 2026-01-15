@@ -8,7 +8,12 @@ export interface IGameDocument extends Document {
     maxPlayers: number;
     difficulty: 'easy' | 'medium' | 'hard';
     pointsReward: number;
+    pointsCost: number;
+    levelRequired: number;
     isActive: boolean;
+    playCount: number;
+    createdAt: Date;
+    updatedAt: Date;
 }
 export interface IGameSessionPlayer {
     user: mongoose.Types.ObjectId;
@@ -16,6 +21,7 @@ export interface IGameSessionPlayer {
     rank: number;
     isReady?: boolean;
     completedAt?: Date;
+    pointsEarned?: number;
     answers?: Array<{
         questionIndex: number;
         answer: string;
@@ -34,6 +40,8 @@ export interface IGameSessionDocument extends Document {
     endedAt?: Date;
     expiresAt?: Date;
     status: 'pending' | 'waiting' | 'active' | 'completed' | 'cancelled' | 'declined' | 'expired';
+    pointsCost: number;
+    pointsAwarded: number;
     gameData?: {
         questions?: Array<{
             question: string;

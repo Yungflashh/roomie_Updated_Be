@@ -9,6 +9,44 @@ import routes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import logger from './utils/logger';
 
+// Create rate limiters
+// 1. General API rate limiter - permissive for regular use
+export const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '1000'), // 1000 requests per 15 min
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for real-time/high-frequency endpoints
+    const skipPaths = [
+      '/api/v1/messages',
+      '/api/v1/notifications',
+      '/api/v1/matches/check',
+    ];
+    return skipPaths.some(path => req.path.startsWith(path));
+  }
+});
+
+// 2. Strict rate limiter for authentication endpoints
+export const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // Only 10 attempts per 15 minutes
+  message: 'Too many authentication attempts, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true, // Don't count successful logins
+});
+
+// 3. Moderate limiter for resource-intensive operations
+export const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 50, // 50 uploads per 15 minutes
+  message: 'Too many upload requests, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 const createApp = (): Application => {
   const app = express();
 
@@ -41,15 +79,8 @@ const createApp = (): Application => {
     }));
   }
 
-  // Rate limiting
-  const limiter = rateLimit({
-    windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'), // 15 minutes
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'),
-    message: 'Too many requests from this IP, please try again later.',
-    standardHeaders: true,
-    legacyHeaders: false,
-  });
-  app.use('/api/', limiter);
+  // Apply general rate limiting to all API routes
+  app.use('/api/', generalLimiter);
 
   // Static files
   app.use('/uploads', express.static(path.join(process.cwd(), 'public/uploads')));

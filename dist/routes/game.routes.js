@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-// src/routes/game.routes.ts
+// src/routes/game.routes.ts - UPDATED WITH NEW ROUTES
 const express_1 = require("express");
 const game_controller_1 = __importDefault(require("../controllers/game.controller"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
@@ -17,11 +17,25 @@ router.use(auth_middleware_1.authenticate);
  */
 router.get('/', game_controller_1.default.getAllGames);
 /**
+ * @route   GET /api/v1/games/available
+ * @desc    Get games available for user (filtered by level)
+ * @access  Private
+ * IMPORTANT: Must be BEFORE /:gameId route
+ */
+router.get('/available', game_controller_1.default.getAvailableGames);
+/**
  * @route   GET /api/v1/games/history/me
  * @desc    Get user's game history
  * @access  Private
  */
 router.get('/history/me', game_controller_1.default.getGameHistory);
+/**
+ * @route   GET /api/v1/games/can-play/:gameId
+ * @desc    Check if user can play specific game
+ * @access  Private
+ * IMPORTANT: Must be BEFORE /:gameId route
+ */
+router.get('/can-play/:gameId', game_controller_1.default.canPlayGame);
 /**
  * @route   GET /api/v1/games/:gameId
  * @desc    Get game details

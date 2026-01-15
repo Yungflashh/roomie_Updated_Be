@@ -74,9 +74,25 @@ const gameSchema = new mongoose_1.Schema({
         default: 10,
         min: 0,
     },
+    pointsCost: {
+        type: Number,
+        default: 5,
+        min: 0,
+        required: true,
+    },
+    levelRequired: {
+        type: Number,
+        default: 1,
+        min: 1,
+        required: true,
+    },
     isActive: {
         type: Boolean,
         default: true,
+    },
+    playCount: {
+        type: Number,
+        default: 0,
     },
 }, {
     timestamps: true,
@@ -112,6 +128,10 @@ const gameSessionSchema = new mongoose_1.Schema({
                 default: false,
             },
             completedAt: Date,
+            pointsEarned: {
+                type: Number,
+                default: 0,
+            },
             answers: [{
                     questionIndex: Number,
                     answer: String,
@@ -141,6 +161,14 @@ const gameSessionSchema = new mongoose_1.Schema({
         enum: ['pending', 'waiting', 'active', 'completed', 'cancelled', 'declined', 'expired'],
         default: 'waiting',
         index: true,
+    },
+    pointsCost: {
+        type: Number,
+        default: 0,
+    },
+    pointsAwarded: {
+        type: Number,
+        default: 0,
     },
     gameData: {
         questions: [{

@@ -3,22 +3,26 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-// src/services/match.service.ts
+// src/services/match.service.ts - COMPLETE WITH POINTS SYSTEM AND DISTANCE SORTING
 const models_1 = require("../models");
 const socket_config_1 = require("../config/socket.config");
 const compatibility_service_1 = __importDefault(require("./compatibility.service"));
 const notification_service_1 = __importDefault(require("./notification.service"));
+const points_service_1 = __importDefault(require("./points.service"));
 const logger_1 = __importDefault(require("../utils/logger"));
 class MatchService {
     /**
      * Get potential matches
      */
-    async getPotentialMatches(userId, limit = 20, minCompatibility = 0) {
+    async getPotentialMatches(userId, limit = 20, minCompatibility = 0, sortBy = 'compatibility' // NEW: Sort parameter
+    ) {
         const currentUser = await models_1.User.findById(userId);
         if (!currentUser) {
             throw new Error('User not found');
         }
-        logger_1.default.info(`Getting potential matches for user: ${userId}`);
+        logger_1.default.info(`Getting potential matches for user: ${userId}, sortBy: ${sortBy}`);
+        // Get user's coordinates for distance calculation
+        const userCoords = currentUser.location?.coordinates;
         const interactedUserIds = [
             ...currentUser.likes.map(id => id.toString()),
             ...currentUser.passes.map(id => id.toString()),
@@ -40,6 +44,11 @@ class MatchService {
         const matchesWithScores = potentialMatches
             .map((user) => {
             const score = compatibility_service_1.default.calculateCompatibility(currentUser, user);
+            // Calculate distance if both users have coordinates
+            let distance;
+            if (userCoords && user.location?.coordinates) {
+                distance = this.calculateDistance(userCoords, user.location.coordinates);
+            }
             return {
                 user: {
                     id: user._id,
@@ -57,13 +66,54 @@ class MatchService {
                     verified: user.verified,
                 },
                 compatibilityScore: score,
+                distance, // NEW: Include distance in result
             };
         })
-            .filter((match) => match.compatibilityScore >= minCompatibility)
-            .sort((a, b) => b.compatibilityScore - a.compatibilityScore)
-            .slice(0, limit);
-        logger_1.default.info(`Returning ${matchesWithScores.length} matches with scores >= ${minCompatibility}`);
-        return matchesWithScores;
+            .filter((match) => match.compatibilityScore >= minCompatibility);
+        // Sort based on the sortBy parameter
+        if (sortBy === 'distance') {
+            // Filter out users without location data and sort by distance (closest first)
+            const matchesWithDistance = matchesWithScores
+                .filter(m => m.distance !== undefined)
+                .sort((a, b) => (a.distance || 0) - (b.distance || 0));
+            logger_1.default.info(`Returning ${matchesWithDistance.slice(0, limit).length} matches sorted by distance`);
+            return matchesWithDistance.slice(0, limit);
+        }
+        else {
+            // Sort by compatibility score (highest first) - default behavior
+            const sortedMatches = matchesWithScores
+                .sort((a, b) => b.compatibilityScore - a.compatibilityScore)
+                .slice(0, limit);
+            logger_1.default.info(`Returning ${sortedMatches.length} matches sorted by compatibility`);
+            return sortedMatches;
+        }
+    }
+    /**
+     * Calculate distance between two coordinates using Haversine formula
+     * @param coords1 - [longitude, latitude]
+     * @param coords2 - [longitude, latitude]
+     * @returns Distance in kilometers
+     */
+    calculateDistance(coords1, coords2) {
+        const [lon1, lat1] = coords1;
+        const [lon2, lat2] = coords2;
+        const R = 6371; // Earth's radius in kilometers
+        const dLat = this.toRad(lat2 - lat1);
+        const dLon = this.toRad(lon2 - lon1);
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(this.toRad(lat1)) *
+                Math.cos(this.toRad(lat2)) *
+                Math.sin(dLon / 2) *
+                Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        const distance = R * c;
+        return Math.round(distance * 100) / 100; // Round to 2 decimal places
+    }
+    /**
+     * Convert degrees to radians
+     */
+    toRad(degrees) {
+        return degrees * (Math.PI / 180);
     }
     /**
      * Get sent likes
@@ -99,7 +149,31 @@ class MatchService {
         }));
     }
     /**
-     * Like a user
+     * Check if user can send match request (has enough points)
+     */
+    async canSendMatchRequest(userId) {
+        const user = await models_1.User.findById(userId).select('gamification subscription');
+        if (!user)
+            throw new Error('User not found');
+        // Calculate match cost
+        const pointsCost = await points_service_1.default.calculateMatchCost(userId);
+        // Check if user has enough points
+        if (user.gamification.points < pointsCost) {
+            return {
+                canSend: false,
+                reason: `Requires ${pointsCost} points. You have ${user.gamification.points}`,
+                pointsCost,
+                userPoints: user.gamification.points,
+            };
+        }
+        return {
+            canSend: true,
+            pointsCost,
+            userPoints: user.gamification.points,
+        };
+    }
+    /**
+     * Like a user (with points deduction)
      */
     async likeUser(userId, targetUserId) {
         if (userId === targetUserId) {
@@ -111,6 +185,29 @@ class MatchService {
         ]);
         if (!currentUser || !targetUser) {
             throw new Error('User not found');
+        }
+        // Check if user can send match request
+        const canSend = await this.canSendMatchRequest(userId);
+        if (!canSend.canSend) {
+            throw new Error(canSend.reason || 'Cannot send match request');
+        }
+        // Deduct points for match request
+        const pointsCost = canSend.pointsCost;
+        try {
+            await points_service_1.default.deductPoints({
+                userId,
+                amount: pointsCost,
+                type: 'match_request',
+                reason: `Match request to ${targetUser.firstName}`,
+                metadata: {
+                    targetUserId,
+                    targetUserName: `${targetUser.firstName} ${targetUser.lastName}`,
+                },
+            });
+            logger_1.default.info(`Deducted ${pointsCost} points from ${userId} for match request`);
+        }
+        catch (error) {
+            throw new Error(`Failed to deduct points: ${error.message}`);
         }
         // Add to likes
         if (!currentUser.likes.includes(targetUserId)) {
@@ -134,9 +231,27 @@ class MatchService {
                     compatibilityScore,
                     matchedAt: new Date(),
                     status: 'active',
+                    initiatedBy: userId,
+                    pointsCost,
                 });
                 logger_1.default.info(`New match created: ${userId} <-> ${targetUserId}`);
-                // Emit match event to both users via WebSocket
+                // Award bonus for successful match
+                const config = await points_service_1.default.getConfig();
+                const matchBonus = config.firstMatchBonus;
+                if (matchBonus > 0) {
+                    await points_service_1.default.addPoints({
+                        userId,
+                        amount: matchBonus,
+                        type: 'bonus',
+                        reason: `Match with ${targetUser.firstName}!`,
+                        metadata: {
+                            matchId: match._id,
+                            targetUserId,
+                        },
+                    });
+                    logger_1.default.info(`Awarded ${matchBonus} points bonus for successful match`);
+                }
+                // Emit match events
                 try {
                     (0, socket_config_1.emitNewMatch)(userId, targetUserId, {
                         _id: match._id,
@@ -170,6 +285,7 @@ class MatchService {
             }
             return {
                 isMatch: true,
+                pointsDeducted: pointsCost,
                 match: {
                     id: match._id,
                     user: {
@@ -182,7 +298,7 @@ class MatchService {
                 },
             };
         }
-        // Not a match yet - emit match request to target user
+        // Not a match yet - emit match request
         try {
             (0, socket_config_1.emitMatchRequest)(targetUserId, {
                 _id: currentUser._id,
@@ -194,9 +310,12 @@ class MatchService {
         catch (socketError) {
             logger_1.default.warn('Socket emit failed:', socketError);
         }
-        // Create notification for like
+        // Create notification
         await notification_service_1.default.notifyLike(userId, targetUserId);
-        return { isMatch: false };
+        return {
+            isMatch: false,
+            pointsDeducted: pointsCost,
+        };
     }
     /**
      * Pass a user

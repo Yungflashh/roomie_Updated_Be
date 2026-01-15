@@ -1,3 +1,4 @@
+// src/models/Match.ts
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IMatchDocument extends Document {
@@ -11,6 +12,8 @@ export interface IMatchDocument extends Document {
     user1: number;
     user2: number;
   };
+  initiatedBy?: mongoose.Types.ObjectId; // Track who sent the match request
+  pointsCost?: number; // Points deducted for sending match (if any)
 }
 
 const matchSchema = new Schema<IMatchDocument>(
@@ -51,6 +54,14 @@ const matchSchema = new Schema<IMatchDocument>(
         type: Number,
         default: 0,
       },
+    },
+    initiatedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+    },
+    pointsCost: {
+      type: Number,
+      default: 0,
     },
   },
   {

@@ -303,6 +303,49 @@ class GameController {
             });
         }
     }
+    // ADD THESE TWO METHODS TO YOUR src/controllers/game.controller.ts
+    // Place them after the getLeaderboard method, before the closing bracket
+    /**
+     * Get games available for user (filtered by level)
+     */
+    async getAvailableGames(req, res) {
+        try {
+            const userId = req.user?.userId;
+            const result = await game_service_1.default.getAvailableGamesForUser(userId);
+            res.status(200).json({
+                success: true,
+                data: result,
+            });
+        }
+        catch (error) {
+            logger_1.default.error('Get available games error:', error);
+            res.status(500).json({
+                success: false,
+                message: error.message || 'Failed to fetch available games',
+            });
+        }
+    }
+    /**
+     * Check if user can play specific game
+     */
+    async canPlayGame(req, res) {
+        try {
+            const userId = req.user?.userId;
+            const { gameId } = req.params;
+            const result = await game_service_1.default.canUserPlayGame(userId, gameId);
+            res.status(200).json({
+                success: true,
+                data: result,
+            });
+        }
+        catch (error) {
+            logger_1.default.error('Can play game error:', error);
+            res.status(500).json({
+                success: false,
+                message: error.message || 'Failed to check game availability',
+            });
+        }
+    }
 }
 exports.default = new GameController();
 //# sourceMappingURL=game.controller.js.map

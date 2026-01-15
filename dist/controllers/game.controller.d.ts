@@ -53,6 +53,14 @@ declare class GameController {
      * Get game leaderboard
      */
     getLeaderboard(req: AuthRequest, res: Response): Promise<void>;
+    /**
+     * Get games available for user (filtered by level)
+     */
+    getAvailableGames(req: AuthRequest, res: Response): Promise<void>;
+    /**
+     * Check if user can play specific game
+     */
+    canPlayGame(req: AuthRequest, res: Response): Promise<void>;
 }
 declare const _default: GameController;
 export default _default;

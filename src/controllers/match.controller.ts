@@ -1,3 +1,4 @@
+// src/controllers/match.controller.ts - COMPLETE WITH DISTANCE SORTING
 import { Response } from 'express';
 import { AuthRequest } from '../types';
 import matchService from '../services/match.service';
@@ -5,17 +6,22 @@ import logger from '../utils/logger';
 
 class MatchController {
   /**
-   * Get potential matches
+   * Get potential matches (with distance sorting support)
    */
   async getPotentialMatches(req: AuthRequest, res: Response): Promise<void> {
     try {
       const userId = req.user?.userId!;
-      const { limit = 20, minCompatibility = 50 } = req.query;
+      const { 
+        limit = 20, 
+        minCompatibility = 50,
+        sort = 'compatibility' // NEW: Add sort parameter
+      } = req.query;
 
       const matches = await matchService.getPotentialMatches(
         userId,
         parseInt(limit as string),
-        parseInt(minCompatibility as string)
+        parseInt(minCompatibility as string),
+        sort as 'compatibility' | 'distance' // NEW: Pass sort type to service
       );
 
       res.status(200).json({
@@ -34,33 +40,29 @@ class MatchController {
     }
   }
 
+  /**
+   * Get sent likes (users I have liked)
+   */
+  async getSentLikes(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId!;
+      const likes = await matchService.getSentLikes(userId);
 
-// src/controllers/match.controller.ts - Add this method
-
-/**
- * Get sent likes (users I have liked)
- */
-async getSentLikes(req: AuthRequest, res: Response): Promise<void> {
-  try {
-    const userId = req.user?.userId!;
-    const likes = await matchService.getSentLikes(userId);
-
-    res.status(200).json({
-      success: true,
-      data: {
-        likes,
-        total: likes.length,
-      },
-    });
-  } catch (error) {
-    logger.error('Get sent likes error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch sent likes',
-    });
+      res.status(200).json({
+        success: true,
+        data: {
+          likes,
+          total: likes.length,
+        },
+      });
+    } catch (error) {
+      logger.error('Get sent likes error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch sent likes',
+      });
+    }
   }
-}
-
 
   /**
    * Like a user
@@ -199,7 +201,7 @@ async getSentLikes(req: AuthRequest, res: Response): Promise<void> {
   }
 
   /**
-   * Get likes
+   * Get likes (users who liked current user)
    */
   async getLikes(req: AuthRequest, res: Response): Promise<void> {
     try {

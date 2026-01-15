@@ -1,22 +1,44 @@
 interface PotentialMatch {
     user: any;
     compatibilityScore: number;
+    distance?: number;
 }
 declare class MatchService {
     /**
      * Get potential matches
      */
-    getPotentialMatches(userId: string, limit?: number, minCompatibility?: number): Promise<PotentialMatch[]>;
+    getPotentialMatches(userId: string, limit?: number, minCompatibility?: number, sortBy?: 'compatibility' | 'distance'): Promise<PotentialMatch[]>;
+    /**
+     * Calculate distance between two coordinates using Haversine formula
+     * @param coords1 - [longitude, latitude]
+     * @param coords2 - [longitude, latitude]
+     * @returns Distance in kilometers
+     */
+    private calculateDistance;
+    /**
+     * Convert degrees to radians
+     */
+    private toRad;
     /**
      * Get sent likes
      */
     getSentLikes(userId: string): Promise<any[]>;
     /**
-     * Like a user
+     * Check if user can send match request (has enough points)
+     */
+    canSendMatchRequest(userId: string): Promise<{
+        canSend: boolean;
+        reason?: string;
+        pointsCost?: number;
+        userPoints?: number;
+    }>;
+    /**
+     * Like a user (with points deduction)
      */
     likeUser(userId: string, targetUserId: string): Promise<{
         isMatch: boolean;
         match?: any;
+        pointsDeducted?: number;
     }>;
     /**
      * Pass a user

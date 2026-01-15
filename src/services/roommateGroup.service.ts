@@ -25,8 +25,8 @@ class RoommateGroupService {
       };
     }
   ): Promise<IRoommateGroupDocument> {
-    // Generate unique invite code
-    const inviteCode = await (RoommateGroup as any).generateInviteCode();
+    // Generate unique invite code based on room name
+    const inviteCode = await (RoommateGroup as any).generateInviteCode(data.name);
 
     const group = new RoommateGroup({
       name: data.name,
@@ -55,7 +55,7 @@ class RoommateGroupService {
     // Initialize points for creator
     await this.initializeUserPoints(group._id.toString(), userId);
 
-    logger.info(`Roommate group created: ${group._id} by user ${userId}`);
+    logger.info(`Roommate group created: ${group._id} by user ${userId} with code ${inviteCode}`);
     return group.populate('members.user', 'firstName lastName profilePhoto email');
   }
 
@@ -259,7 +259,7 @@ class RoommateGroupService {
    */
   async respondToInvite(
     inviteId: string,
-    odlpUserId: string,
+    userId: string,
     accept: boolean
   ): Promise<IRoommateGroupDocument | null> {
     const invite = await GroupInvite.findById(inviteId);
@@ -267,7 +267,7 @@ class RoommateGroupService {
       throw new Error('Invite not found');
     }
 
-    if (invite.invitedUser?.toString() !== odlpUserId) {
+    if (invite.invitedUser?.toString() !== userId) {
       throw new Error('This invite is not for you');
     }
 
@@ -293,7 +293,7 @@ class RoommateGroupService {
       }
 
       group.members.push({
-        user: new mongoose.Types.ObjectId(odlpUserId),
+        user: new mongoose.Types.ObjectId(userId),
         role: 'member',
         joinedAt: new Date(),
         invitedBy: invite.invitedBy,
@@ -303,25 +303,25 @@ class RoommateGroupService {
       await group.save();
 
       // Initialize points
-      await this.initializeUserPoints(group._id.toString(), odlpUserId);
+      await this.initializeUserPoints(group._id.toString(), userId);
 
       // Notify group
       const io = getIO();
       if (io) {
         io.to(`group:${group._id}`).emit('group:memberJoined', {
           groupId: group._id,
-          odlpUserId,
+          userId,
         });
       }
 
-      logger.info(`User ${odlpUserId} accepted invite to group ${group._id}`);
+      logger.info(`User ${userId} accepted invite to group ${group._id}`);
       return group.populate('members.user', 'firstName lastName profilePhoto email');
     } else {
       invite.status = 'declined';
       invite.declinedAt = new Date();
       await invite.save();
 
-      logger.info(`User ${odlpUserId} declined invite ${inviteId}`);
+      logger.info(`User ${userId} declined invite ${inviteId}`);
       return null;
     }
   }
@@ -542,7 +542,7 @@ class RoommateGroupService {
   }
 
   /**
-   * Regenerate invite code
+   * Regenerate invite code based on current group name
    */
   async regenerateInviteCode(
     groupId: string,
@@ -561,11 +561,11 @@ class RoommateGroupService {
       throw new Error('Only admins can regenerate invite code');
     }
 
-    const newCode = await (RoommateGroup as any).generateInviteCode();
+    const newCode = await (RoommateGroup as any).generateInviteCode(group.name);
     group.inviteCode = newCode;
     await group.save();
 
-    logger.info(`Invite code regenerated for group ${groupId}`);
+    logger.info(`Invite code regenerated for group ${groupId}: ${newCode}`);
     return newCode;
   }
 
@@ -595,7 +595,7 @@ class RoommateGroupService {
    * Get group leaderboard
    */
   async getGroupLeaderboard(groupId: string): Promise<{
-    odlpUserId: string;
+    userId: string;
     user: any;
     totalPoints: number;
     earnedPoints: number;
@@ -605,8 +605,8 @@ class RoommateGroupService {
       .populate('user', 'firstName lastName profilePhoto')
       .sort({ totalPoints: -1 });
 
-    return points.map((p: any, index:any) => ({
-      odlpUserId: p.user._id.toString(),
+    return points.map((p: any, index: number) => ({
+      userId: p.user._id.toString(),
       user: p.user,
       totalPoints: p.totalPoints,
       earnedPoints: p.earnedPoints,

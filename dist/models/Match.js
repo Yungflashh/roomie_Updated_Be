@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Match = void 0;
+// src/models/Match.ts
 const mongoose_1 = __importStar(require("mongoose"));
 const matchSchema = new mongoose_1.Schema({
     user1: {
@@ -72,6 +73,14 @@ const matchSchema = new mongoose_1.Schema({
             type: Number,
             default: 0,
         },
+    },
+    initiatedBy: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'User',
+    },
+    pointsCost: {
+        type: Number,
+        default: 0,
     },
 }, {
     timestamps: true,

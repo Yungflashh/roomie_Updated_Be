@@ -15,8 +15,8 @@ class RoommateGroupService {
      * Create a new roommate group
      */
     async createGroup(userId, data) {
-        // Generate unique invite code
-        const inviteCode = await RoommateGroup_1.RoommateGroup.generateInviteCode();
+        // Generate unique invite code based on room name
+        const inviteCode = await RoommateGroup_1.RoommateGroup.generateInviteCode(data.name);
         const group = new RoommateGroup_1.RoommateGroup({
             name: data.name,
             description: data.description,
@@ -41,7 +41,7 @@ class RoommateGroupService {
         await group.save();
         // Initialize points for creator
         await this.initializeUserPoints(group._id.toString(), userId);
-        logger_1.default.info(`Roommate group created: ${group._id} by user ${userId}`);
+        logger_1.default.info(`Roommate group created: ${group._id} by user ${userId} with code ${inviteCode}`);
         return group.populate('members.user', 'firstName lastName profilePhoto email');
     }
     /**
@@ -199,12 +199,12 @@ class RoommateGroupService {
     /**
      * Accept/decline group invite
      */
-    async respondToInvite(inviteId, odlpUserId, accept) {
+    async respondToInvite(inviteId, userId, accept) {
         const invite = await GroupInvite_1.GroupInvite.findById(inviteId);
         if (!invite) {
             throw new Error('Invite not found');
         }
-        if (invite.invitedUser?.toString() !== odlpUserId) {
+        if (invite.invitedUser?.toString() !== userId) {
             throw new Error('This invite is not for you');
         }
         if (invite.status !== 'pending') {
@@ -225,7 +225,7 @@ class RoommateGroupService {
                 throw new Error('Group no longer exists');
             }
             group.members.push({
-                user: new mongoose_1.default.Types.ObjectId(odlpUserId),
+                user: new mongoose_1.default.Types.ObjectId(userId),
                 role: 'member',
                 joinedAt: new Date(),
                 invitedBy: invite.invitedBy,
@@ -233,23 +233,23 @@ class RoommateGroupService {
             });
             await group.save();
             // Initialize points
-            await this.initializeUserPoints(group._id.toString(), odlpUserId);
+            await this.initializeUserPoints(group._id.toString(), userId);
             // Notify group
             const io = (0, socket_config_1.getIO)();
             if (io) {
                 io.to(`group:${group._id}`).emit('group:memberJoined', {
                     groupId: group._id,
-                    odlpUserId,
+                    userId,
                 });
             }
-            logger_1.default.info(`User ${odlpUserId} accepted invite to group ${group._id}`);
+            logger_1.default.info(`User ${userId} accepted invite to group ${group._id}`);
             return group.populate('members.user', 'firstName lastName profilePhoto email');
         }
         else {
             invite.status = 'declined';
             invite.declinedAt = new Date();
             await invite.save();
-            logger_1.default.info(`User ${odlpUserId} declined invite ${inviteId}`);
+            logger_1.default.info(`User ${userId} declined invite ${inviteId}`);
             return null;
         }
     }
@@ -404,7 +404,7 @@ class RoommateGroupService {
         return group.populate('members.user', 'firstName lastName profilePhoto email');
     }
     /**
-     * Regenerate invite code
+     * Regenerate invite code based on current group name
      */
     async regenerateInviteCode(groupId, adminId) {
         const group = await RoommateGroup_1.RoommateGroup.findById(groupId);
@@ -416,10 +416,10 @@ class RoommateGroupService {
         if (!adminMember) {
             throw new Error('Only admins can regenerate invite code');
         }
-        const newCode = await RoommateGroup_1.RoommateGroup.generateInviteCode();
+        const newCode = await RoommateGroup_1.RoommateGroup.generateInviteCode(group.name);
         group.inviteCode = newCode;
         await group.save();
-        logger_1.default.info(`Invite code regenerated for group ${groupId}`);
+        logger_1.default.info(`Invite code regenerated for group ${groupId}: ${newCode}`);
         return newCode;
     }
     /**
@@ -450,7 +450,7 @@ class RoommateGroupService {
             .populate('user', 'firstName lastName profilePhoto')
             .sort({ totalPoints: -1 });
         return points.map((p, index) => ({
-            odlpUserId: p.user._id.toString(),
+            userId: p.user._id.toString(),
             user: p.user,
             totalPoints: p.totalPoints,
             earnedPoints: p.earnedPoints,

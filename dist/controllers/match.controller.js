@@ -7,13 +7,15 @@ const match_service_1 = __importDefault(require("../services/match.service"));
 const logger_1 = __importDefault(require("../utils/logger"));
 class MatchController {
     /**
-     * Get potential matches
+     * Get potential matches (with distance sorting support)
      */
     async getPotentialMatches(req, res) {
         try {
             const userId = req.user?.userId;
-            const { limit = 20, minCompatibility = 50 } = req.query;
-            const matches = await match_service_1.default.getPotentialMatches(userId, parseInt(limit), parseInt(minCompatibility));
+            const { limit = 20, minCompatibility = 50, sort = 'compatibility' // NEW: Add sort parameter
+             } = req.query;
+            const matches = await match_service_1.default.getPotentialMatches(userId, parseInt(limit), parseInt(minCompatibility), sort // NEW: Pass sort type to service
+            );
             res.status(200).json({
                 success: true,
                 data: {
@@ -30,7 +32,6 @@ class MatchController {
             });
         }
     }
-    // src/controllers/match.controller.ts - Add this method
     /**
      * Get sent likes (users I have liked)
      */
@@ -174,7 +175,7 @@ class MatchController {
         }
     }
     /**
-     * Get likes
+     * Get likes (users who liked current user)
      */
     async getLikes(req, res) {
         try {

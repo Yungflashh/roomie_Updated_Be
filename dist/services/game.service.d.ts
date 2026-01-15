@@ -9,7 +9,27 @@ declare class GameService {
      */
     getGameById(gameId: string): Promise<IGameDocument>;
     /**
-     * Send game invitation to a match
+     * Get games available for user (based on level)
+     */
+    getAvailableGamesForUser(userId: string): Promise<{
+        available: IGameDocument[];
+        locked: Array<IGameDocument & {
+            reason: string;
+        }>;
+    }>;
+    /**
+     * Check if user can play game (level + points)
+     */
+    canUserPlayGame(userId: string, gameId: string): Promise<{
+        canPlay: boolean;
+        reason?: string;
+        requiredLevel?: number;
+        requiredPoints?: number;
+        userLevel?: number;
+        userPoints?: number;
+    }>;
+    /**
+     * Send game invitation (with points check)
      */
     sendGameInvitation(gameId: string, inviterId: string, invitedUserId: string, matchId: string): Promise<IGameSessionDocument>;
     /**
@@ -17,7 +37,7 @@ declare class GameService {
      */
     respondToInvitation(sessionId: string, userId: string, accept: boolean): Promise<IGameSessionDocument>;
     /**
-     * Start game session
+     * Start game session (deduct points from both players)
      */
     startGameSession(sessionId: string, userId: string): Promise<IGameSessionDocument>;
     /**
@@ -46,11 +66,11 @@ declare class GameService {
         }>;
     }>;
     /**
-     * Finalize game session when all players complete
+     * Finalize game session (award points to winner)
      */
     private finalizeGameSession;
     /**
-     * Complete game session (legacy - now just returns session status)
+     * Complete game session
      */
     completeGameSession(sessionId: string): Promise<IGameSessionDocument>;
     /**

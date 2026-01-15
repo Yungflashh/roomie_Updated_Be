@@ -1,0 +1,444 @@
+// src/services/points.service.ts
+import { User, IUserDocument } from '../models/User';
+import { PointTransaction } from '../models/PointTransaction';
+import { PointsConfig, IPointsConfigDocument } from '../models/PointsConfig';
+import { Game } from '../models/Game';
+import logger from '../utils/logger';
+
+interface AddPointsOptions {
+  userId: string;
+  amount: number;
+  type: 
+    | 'earned' 
+    | 'bonus' 
+    | 'daily_login' 
+    | 'weekly_streak' 
+    | 'level_up'
+    | 'verification'
+    | 'game_reward'
+    | 'achievement'
+    | 'refund';
+  reason: string;
+  metadata?: Record<string, any>;
+}
+
+interface DeductPointsOptions {
+  userId: string;
+  amount: number;
+  type: 'spent' | 'penalty' | 'game_entry' | 'match_request';
+  reason: string;
+  metadata?: Record<string, any>;
+}
+
+class PointsService {
+  private configCache: IPointsConfigDocument | null = null;
+  private configCacheTime: number = 0;
+  private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+  /**
+   * Get active points configuration (with caching)
+   */
+  async getConfig(): Promise<IPointsConfigDocument> {
+    const now = Date.now();
+    
+    // Return cached config if still valid
+    if (this.configCache && (now - this.configCacheTime) < this.CACHE_DURATION) {
+      return this.configCache;
+    }
+
+    // Fetch from database
+    let config = await PointsConfig.findOne({ isActive: true });
+
+    // Create default config if none exists
+    if (!config) {
+      config = await PointsConfig.create({
+        isActive: true,
+      });
+      logger.info('Created default points configuration');
+    }
+
+    this.configCache = config;
+    this.configCacheTime = now;
+    
+    return config;
+  }
+
+  /**
+   * Calculate level from points
+   */
+  calculateLevel(points: number, config?: IPointsConfigDocument): number {
+    if (!config) {
+      // Default calculation if config not provided
+      return Math.floor(points / 100) + 1;
+    }
+
+    let level = 1;
+    let pointsNeeded = config.baseLevelPoints;
+
+    while (points >= pointsNeeded) {
+      level++;
+      pointsNeeded += Math.floor(config.pointsPerLevel * Math.pow(config.levelMultiplier, level - 2));
+    }
+
+    return level;
+  }
+
+  /**
+   * Calculate points needed for next level
+   */
+  calculatePointsForNextLevel(currentLevel: number, config?: IPointsConfigDocument): number {
+    if (!config) {
+      return currentLevel * 100;
+    }
+
+    let pointsNeeded = config.baseLevelPoints;
+    for (let i = 1; i < currentLevel; i++) {
+      pointsNeeded += Math.floor(config.pointsPerLevel * Math.pow(config.levelMultiplier, i - 1));
+    }
+
+    return pointsNeeded;
+  }
+
+  /**
+   * Add points to user
+   */
+  async addPoints(options: AddPointsOptions): Promise<{
+    success: boolean;
+    newBalance: number;
+    transaction: any;
+    leveledUp: boolean;
+    newLevel?: number;
+    oldLevel?: number;
+  }> {
+    const { userId, amount, type, reason, metadata = {} } = options;
+
+    try {
+      const user = await User.findById(userId);
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      const config = await this.getConfig();
+      const oldPoints = user.gamification.points;
+      const oldLevel = user.gamification.level;
+      const newPoints = oldPoints + amount;
+
+      // Update user points
+      user.gamification.points = newPoints;
+
+      // Check for level up
+      const newLevel = this.calculateLevel(newPoints, config);
+      let leveledUp = false;
+
+      if (newLevel > oldLevel) {
+        user.gamification.level = newLevel;
+        leveledUp = true;
+        logger.info(`User ${userId} leveled up from ${oldLevel} to ${newLevel}`);
+      }
+
+      await user.save();
+
+      // Create transaction record
+      const transaction = await PointTransaction.create({
+        user: userId,
+        type,
+        amount,
+        balance: newPoints,
+        reason,
+        metadata: {
+          ...metadata,
+          oldLevel: leveledUp ? oldLevel : undefined,
+          newLevel: leveledUp ? newLevel : undefined,
+        },
+      });
+
+      logger.info(`Added ${amount} points to user ${userId}. New balance: ${newPoints}`);
+
+      // Award level up bonus if leveled up
+      if (leveledUp) {
+        const levelUpBonus = Math.floor(newLevel * 10); // 10 points per new level
+        await this.addPoints({
+          userId,
+          amount: levelUpBonus,
+          type: 'level_up',
+          reason: `Level ${newLevel} bonus`,
+          metadata: { level: newLevel },
+        });
+      }
+
+      return {
+        success: true,
+        newBalance: newPoints,
+        transaction,
+        leveledUp,
+        newLevel: leveledUp ? newLevel : undefined,
+        oldLevel: leveledUp ? oldLevel : undefined,
+      };
+    } catch (error: any) {
+      logger.error('Add points error:', error);
+      throw new Error(error.message || 'Failed to add points');
+    }
+  }
+
+  /**
+   * Deduct points from user
+   */
+  async deductPoints(options: DeductPointsOptions): Promise<{
+    success: boolean;
+    newBalance: number;
+    transaction: any;
+  }> {
+    const { userId, amount, type, reason, metadata = {} } = options;
+
+    try {
+      const user = await User.findById(userId);
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      if (user.gamification.points < amount) {
+        throw new Error('Insufficient points');
+      }
+
+      const oldPoints = user.gamification.points;
+      const newPoints = oldPoints - amount;
+
+      user.gamification.points = newPoints;
+      await user.save();
+
+      // Create transaction record (negative amount)
+      const transaction = await PointTransaction.create({
+        user: userId,
+        type,
+        amount: -amount,
+        balance: newPoints,
+        reason,
+        metadata,
+      });
+
+      logger.info(`Deducted ${amount} points from user ${userId}. New balance: ${newPoints}`);
+
+      return {
+        success: true,
+        newBalance: newPoints,
+        transaction,
+      };
+    } catch (error: any) {
+      logger.error('Deduct points error:', error);
+      throw new Error(error.message || 'Failed to deduct points');
+    }
+  }
+
+  /**
+   * Check if user has enough points
+   */
+  async hasEnoughPoints(userId: string, amount: number): Promise<boolean> {
+    const user = await User.findById(userId).select('gamification.points');
+    if (!user) return false;
+    return user.gamification.points >= amount;
+  }
+
+  /**
+   * Check if user meets level requirement
+   */
+  async meetsLevelRequirement(userId: string, requiredLevel: number): Promise<boolean> {
+    const user = await User.findById(userId).select('gamification.level');
+    if (!user) return false;
+    return user.gamification.level >= requiredLevel;
+  }
+
+  /**
+   * Calculate match request cost for user (considering premium benefits)
+   */
+  async calculateMatchCost(userId: string): Promise<number> {
+    const user = await User.findById(userId).select('subscription.plan gamification');
+    if (!user) throw new Error('User not found');
+
+    const config = await this.getConfig();
+    let cost = config.matchRequestCost;
+
+    // Premium users get discount
+    if (user.subscription.plan === 'premium' || user.subscription.plan === 'pro') {
+      const discount = config.premiumMatchDiscount / 100;
+      cost = Math.floor(cost * (1 - discount));
+    }
+
+    return cost;
+  }
+
+  /**
+   * Calculate game entry cost for user (considering premium benefits)
+   */
+  async calculateGameCost(userId: string, gameId: string): Promise<number> {
+    const [user, game] = await Promise.all([
+      User.findById(userId).select('subscription.plan'),
+      Game.findById(gameId).select('pointsCost'),
+    ]);
+
+    if (!user) throw new Error('User not found');
+    if (!game) throw new Error('Game not found');
+
+    let cost = game.pointsCost;
+
+    // Premium users get discount
+    if (user.subscription.plan === 'premium' || user.subscription.plan === 'pro') {
+      const config = await this.getConfig();
+      const discount = config.premiumGameDiscount / 100;
+      cost = Math.floor(cost * (1 - discount));
+    }
+
+    return cost;
+  }
+
+  /**
+   * Award daily login bonus
+   */
+  async awardDailyLoginBonus(userId: string): Promise<{
+    awarded: boolean;
+    amount?: number;
+    newBalance?: number;
+  }> {
+    try {
+      const user = await User.findById(userId);
+      if (!user) throw new Error('User not found');
+
+      const config = await this.getConfig();
+      const today = new Date().toDateString();
+      const lastActive = user.gamification.lastActiveDate 
+        ? new Date(user.gamification.lastActiveDate).toDateString() 
+        : null;
+
+      // Check if already awarded today
+      if (lastActive === today) {
+        return { awarded: false };
+      }
+
+      // Calculate bonus (premium users get extra)
+      let bonus = config.dailyLoginBonus;
+      if (user.subscription.plan === 'premium' || user.subscription.plan === 'pro') {
+        bonus += config.premiumDailyBonus;
+      }
+
+      // Update streak
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toDateString();
+
+      if (lastActive === yesterdayStr) {
+        user.gamification.streak += 1;
+      } else {
+        user.gamification.streak = 1;
+      }
+
+      user.gamification.lastActiveDate = new Date();
+      await user.save();
+
+      // Award points
+      const result = await this.addPoints({
+        userId,
+        amount: bonus,
+        type: 'daily_login',
+        reason: `Daily login bonus (Day ${user.gamification.streak})`,
+        metadata: { streak: user.gamification.streak },
+      });
+
+      // Check for weekly streak bonus (7 days)
+      if (user.gamification.streak % 7 === 0) {
+        await this.addPoints({
+          userId,
+          amount: config.weeklyStreakBonus,
+          type: 'weekly_streak',
+          reason: `${user.gamification.streak} days streak bonus!`,
+          metadata: { streak: user.gamification.streak },
+        });
+      }
+
+      return {
+        awarded: true,
+        amount: bonus,
+        newBalance: result.newBalance,
+      };
+    } catch (error: any) {
+      logger.error('Award daily login bonus error:', error);
+      return { awarded: false };
+    }
+  }
+
+  /**
+   * Get user point statistics
+   */
+  async getUserPointStats(userId: string): Promise<any> {
+    const [user, transactions, config] = await Promise.all([
+      User.findById(userId).select('gamification subscription'),
+      PointTransaction.find({ user: userId }).sort({ createdAt: -1 }).limit(50),
+      this.getConfig(),
+    ]);
+
+    if (!user) throw new Error('User not found');
+
+    const totalEarned = await PointTransaction.aggregate([
+      { $match: { user: user._id, amount: { $gt: 0 } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+
+    const totalSpent = await PointTransaction.aggregate([
+      { $match: { user: user._id, amount: { $lt: 0 } } },
+      { $group: { _id: null, total: { $sum: { $abs: '$amount' } } } },
+    ]);
+
+    const pointsForNextLevel = this.calculatePointsForNextLevel(
+      user.gamification.level + 1,
+      config
+    );
+
+    return {
+      currentPoints: user.gamification.points,
+      currentLevel: user.gamification.level,
+      pointsForNextLevel,
+      pointsToNextLevel: pointsForNextLevel - user.gamification.points,
+      totalEarned: totalEarned[0]?.total || 0,
+      totalSpent: totalSpent[0]?.total || 0,
+      streak: user.gamification.streak,
+      recentTransactions: transactions,
+      isPremium: user.subscription.plan !== 'free',
+    };
+  }
+
+  /**
+   * Get point transaction history
+   */
+  async getTransactionHistory(
+    userId: string,
+    page: number = 1,
+    limit: number = 20,
+    type?: string
+  ): Promise<any> {
+    const skip = (page - 1) * limit;
+    const query: any = { user: userId };
+    
+    if (type) {
+      query.type = type;
+    }
+
+    const [transactions, total] = await Promise.all([
+      PointTransaction.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      PointTransaction.countDocuments(query),
+    ]);
+
+    return {
+      transactions,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    };
+  }
+}
+
+export default new PointsService();

@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.uploadLimiter = exports.authLimiter = exports.generalLimiter = void 0;
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
@@ -13,6 +14,41 @@ const path_1 = __importDefault(require("path"));
 const routes_1 = __importDefault(require("./routes"));
 const error_middleware_1 = require("./middleware/error.middleware");
 const logger_1 = __importDefault(require("./utils/logger"));
+// Create rate limiters
+// 1. General API rate limiter - permissive for regular use
+exports.generalLimiter = (0, express_rate_limit_1.default)({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '1000'), // 1000 requests per 15 min
+    message: 'Too many requests from this IP, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req) => {
+        // Skip rate limiting for real-time/high-frequency endpoints
+        const skipPaths = [
+            '/api/v1/messages',
+            '/api/v1/notifications',
+            '/api/v1/matches/check',
+        ];
+        return skipPaths.some(path => req.path.startsWith(path));
+    }
+});
+// 2. Strict rate limiter for authentication endpoints
+exports.authLimiter = (0, express_rate_limit_1.default)({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 10, // Only 10 attempts per 15 minutes
+    message: 'Too many authentication attempts, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true, // Don't count successful logins
+});
+// 3. Moderate limiter for resource-intensive operations
+exports.uploadLimiter = (0, express_rate_limit_1.default)({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 50, // 50 uploads per 15 minutes
+    message: 'Too many upload requests, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 const createApp = () => {
     const app = (0, express_1.default)();
     // Security middleware
@@ -40,15 +76,8 @@ const createApp = () => {
             },
         }));
     }
-    // Rate limiting
-    const limiter = (0, express_rate_limit_1.default)({
-        windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000'), // 15 minutes
-        max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100'),
-        message: 'Too many requests from this IP, please try again later.',
-        standardHeaders: true,
-        legacyHeaders: false,
-    });
-    app.use('/api/', limiter);
+    // Apply general rate limiting to all API routes
+    app.use('/api/', exports.generalLimiter);
     // Static files
     app.use('/uploads', express_1.default.static(path_1.default.join(process.cwd(), 'public/uploads')));
     // API routes

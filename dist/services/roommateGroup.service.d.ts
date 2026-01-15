@@ -43,7 +43,7 @@ declare class RoommateGroupService {
     /**
      * Accept/decline group invite
      */
-    respondToInvite(inviteId: string, odlpUserId: string, accept: boolean): Promise<IRoommateGroupDocument | null>;
+    respondToInvite(inviteId: string, userId: string, accept: boolean): Promise<IRoommateGroupDocument | null>;
     /**
      * Leave group
      */
@@ -72,7 +72,7 @@ declare class RoommateGroupService {
      */
     promoteMember(groupId: string, adminId: string, targetUserId: string): Promise<IRoommateGroupDocument>;
     /**
-     * Regenerate invite code
+     * Regenerate invite code based on current group name
      */
     regenerateInviteCode(groupId: string, adminId: string): Promise<string>;
     /**
@@ -83,7 +83,7 @@ declare class RoommateGroupService {
      * Get group leaderboard
      */
     getGroupLeaderboard(groupId: string): Promise<{
-        odlpUserId: string;
+        userId: string;
         user: any;
         totalPoints: number;
         earnedPoints: number;

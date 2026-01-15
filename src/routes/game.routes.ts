@@ -1,4 +1,4 @@
-// src/routes/game.routes.ts
+// src/routes/game.routes.ts - UPDATED WITH NEW ROUTES
 import { Router } from 'express';
 import gameController from '../controllers/game.controller';
 import { authenticate } from '../middleware/auth.middleware';
@@ -16,11 +16,27 @@ router.use(authenticate);
 router.get('/', gameController.getAllGames);
 
 /**
+ * @route   GET /api/v1/games/available
+ * @desc    Get games available for user (filtered by level)
+ * @access  Private
+ * IMPORTANT: Must be BEFORE /:gameId route
+ */
+router.get('/available', gameController.getAvailableGames);
+
+/**
  * @route   GET /api/v1/games/history/me
  * @desc    Get user's game history
  * @access  Private
  */
 router.get('/history/me', gameController.getGameHistory);
+
+/**
+ * @route   GET /api/v1/games/can-play/:gameId
+ * @desc    Check if user can play specific game
+ * @access  Private
+ * IMPORTANT: Must be BEFORE /:gameId route
+ */
+router.get('/can-play/:gameId', gameController.canPlayGame);
 
 /**
  * @route   GET /api/v1/games/:gameId

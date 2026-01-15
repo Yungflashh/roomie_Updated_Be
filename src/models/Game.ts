@@ -10,7 +10,12 @@ export interface IGameDocument extends Document {
   maxPlayers: number;
   difficulty: 'easy' | 'medium' | 'hard';
   pointsReward: number;
+  pointsCost: number; // Points required to play this game
+  levelRequired: number; // Minimum level required to play
   isActive: boolean;
+  playCount: number;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const gameSchema = new Schema<IGameDocument>(
@@ -52,9 +57,25 @@ const gameSchema = new Schema<IGameDocument>(
       default: 10,
       min: 0,
     },
+    pointsCost: {
+      type: Number,
+      default: 5,
+      min: 0,
+      required: true,
+    },
+    levelRequired: {
+      type: Number,
+      default: 1,
+      min: 1,
+      required: true,
+    },
     isActive: {
       type: Boolean,
       default: true,
+    },
+    playCount: {
+      type: Number,
+      default: 0,
     },
   },
   {
@@ -69,6 +90,7 @@ export interface IGameSessionPlayer {
   rank: number;
   isReady?: boolean;
   completedAt?: Date;
+  pointsEarned?: number; // Points earned in this session
   answers?: Array<{
     questionIndex: number;
     answer: string;
@@ -88,6 +110,8 @@ export interface IGameSessionDocument extends Document {
   endedAt?: Date;
   expiresAt?: Date;
   status: 'pending' | 'waiting' | 'active' | 'completed' | 'cancelled' | 'declined' | 'expired';
+  pointsCost: number; // Points deducted from each player to start
+  pointsAwarded: number; // Total points awarded in this session
   gameData?: {
     questions?: Array<{
       question: string;
@@ -151,6 +175,10 @@ const gameSessionSchema = new Schema<IGameSessionDocument>(
         default: false,
       },
       completedAt: Date,
+      pointsEarned: {
+        type: Number,
+        default: 0,
+      },
       answers: [{
         questionIndex: Number,
         answer: String,
@@ -180,6 +208,14 @@ const gameSessionSchema = new Schema<IGameSessionDocument>(
       enum: ['pending', 'waiting', 'active', 'completed', 'cancelled', 'declined', 'expired'],
       default: 'waiting',
       index: true,
+    },
+    pointsCost: {
+      type: Number,
+      default: 0,
+    },
+    pointsAwarded: {
+      type: Number,
+      default: 0,
     },
     gameData: {
       questions: [{
