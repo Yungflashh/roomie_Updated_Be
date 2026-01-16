@@ -70,4 +70,9 @@ router.put('/change-password', authenticate, authController.changePassword);
  */
 router.delete('/account', authenticate, authController.deleteAccount);
 
+
+
+router.get('/streak', authenticate, authController.getStreak); // ✅ NEW ENDPOINT
+
+
 export default router;

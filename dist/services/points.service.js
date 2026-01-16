@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-// src/services/points.service.ts
+// src/services/points.service.ts - COMPLETE FILE WITH USERNAME SUPPORT
 const User_1 = require("../models/User");
 const PointTransaction_1 = require("../models/PointTransaction");
 const PointsConfig_1 = require("../models/PointsConfig");
@@ -289,7 +289,7 @@ class PointsService {
      */
     async getUserPointStats(userId) {
         const [user, transactions, config] = await Promise.all([
-            User_1.User.findById(userId).select('gamification subscription'),
+            User_1.User.findById(userId).select('gamification subscription pointsUsername'),
             PointTransaction_1.PointTransaction.find({ user: userId }).sort({ createdAt: -1 }).limit(50),
             this.getConfig(),
         ]);
@@ -312,6 +312,7 @@ class PointsService {
             totalEarned: totalEarned[0]?.total || 0,
             totalSpent: totalSpent[0]?.total || 0,
             streak: user.gamification.streak,
+            pointsUsername: user.pointsUsername,
             recentTransactions: transactions,
             isPremium: user.subscription.plan !== 'free',
         };
@@ -342,6 +343,26 @@ class PointsService {
                 pages: Math.ceil(total / limit),
             },
         };
+    }
+    /**
+     * Check if username is available
+     */
+    async isUsernameAvailable(username, excludeUserId) {
+        const cleanUsername = username.toLowerCase().trim();
+        const existingUser = await User_1.User.findOne({ pointsUsername: cleanUsername });
+        if (!existingUser)
+            return true;
+        if (excludeUserId && existingUser._id.toString() === excludeUserId)
+            return true;
+        return false;
+    }
+    /**
+     * Find user by points username
+     */
+    async findUserByUsername(username) {
+        const cleanUsername = username.toLowerCase().trim();
+        return await User_1.User.findOne({ pointsUsername: cleanUsername })
+            .select('firstName lastName profilePhoto verified pointsUsername gamification.points gamification.level');
     }
 }
 exports.default = new PointsService();

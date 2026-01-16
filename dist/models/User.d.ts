@@ -22,6 +22,7 @@ export interface IUserDocument extends Document {
     photos: string[];
     bio?: string;
     occupation?: string;
+    pointsUsername?: string;
     location: {
         type: 'Point';
         coordinates: [number, number];

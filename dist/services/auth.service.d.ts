@@ -42,6 +42,14 @@ interface AuthResponse {
     user: UserResponse;
     accessToken: string;
     refreshToken: string;
+    dailyReward?: {
+        awarded: boolean;
+        points?: number;
+        streak?: number;
+        newBalance?: number;
+        leveledUp?: boolean;
+        newLevel?: number;
+    };
 }
 declare class AuthService {
     /**
@@ -98,6 +106,13 @@ declare class AuthService {
      * Delete account (soft delete)
      */
     deleteAccount(userId: string, password: string): Promise<void>;
+    /**
+     * Get user's current streak
+     */
+    getUserStreak(userId: string): Promise<{
+        currentStreak: number;
+        lastLoginDate: Date | null;
+    }>;
 }
 declare const _default: AuthService;
 export default _default;

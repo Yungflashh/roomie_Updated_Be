@@ -1,4 +1,4 @@
-// src/models/User.ts
+// src/models/User.ts - COMPLETE FILE WITH POINTS USERNAME
 import mongoose, { Schema, Document } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
@@ -26,6 +26,10 @@ export interface IUserDocument extends Document {
   photos: string[];
   bio?: string;
   occupation?: string;
+  
+  // Points username - NEW FIELD
+  pointsUsername?: string;
+  
   location: {
     type: 'Point';
     coordinates: [number, number];
@@ -173,6 +177,20 @@ const userSchema = new Schema<IUserDocument>(
     },
     bio: String,
     occupation: String,
+    
+    // Points username - NEW FIELD
+    pointsUsername: {
+      type: String,
+      unique: true,
+      sparse: true, // Allow null but enforce uniqueness when set
+      lowercase: true,
+      trim: true,
+      minlength: 3,
+      maxlength: 20,
+      match: /^[a-z0-9_]+$/, // Only lowercase, numbers, underscores
+      index: true,
+    },
+    
     location: {
       type: {
         type: String,
@@ -555,6 +573,7 @@ userSchema.methods.comparePassword = async function(
 
 userSchema.index({ 'location.coordinates': '2dsphere' });
 userSchema.index({ email: 1 });
+userSchema.index({ pointsUsername: 1 }); // NEW INDEX
 userSchema.index({ isActive: 1 });
 userSchema.index({ 'subscription.plan': 1 });
 userSchema.index({ createdAt: -1 });

@@ -1,4 +1,4 @@
-// src/services/points.service.ts
+// src/services/points.service.ts - COMPLETE FILE WITH USERNAME SUPPORT
 import { User, IUserDocument } from '../models/User';
 import { PointTransaction } from '../models/PointTransaction';
 import { PointsConfig, IPointsConfigDocument } from '../models/PointsConfig';
@@ -369,7 +369,7 @@ class PointsService {
    */
   async getUserPointStats(userId: string): Promise<any> {
     const [user, transactions, config] = await Promise.all([
-      User.findById(userId).select('gamification subscription'),
+      User.findById(userId).select('gamification subscription pointsUsername'),
       PointTransaction.find({ user: userId }).sort({ createdAt: -1 }).limit(50),
       this.getConfig(),
     ]);
@@ -399,6 +399,7 @@ class PointsService {
       totalEarned: totalEarned[0]?.total || 0,
       totalSpent: totalSpent[0]?.total || 0,
       streak: user.gamification.streak,
+      pointsUsername: user.pointsUsername,
       recentTransactions: transactions,
       isPremium: user.subscription.plan !== 'free',
     };
@@ -438,6 +439,28 @@ class PointsService {
         pages: Math.ceil(total / limit),
       },
     };
+  }
+
+  /**
+   * Check if username is available
+   */
+  async isUsernameAvailable(username: string, excludeUserId?: string): Promise<boolean> {
+    const cleanUsername = username.toLowerCase().trim();
+    const existingUser = await User.findOne({ pointsUsername: cleanUsername });
+    
+    if (!existingUser) return true;
+    if (excludeUserId && existingUser._id.toString() === excludeUserId) return true;
+    
+    return false;
+  }
+
+  /**
+   * Find user by points username
+   */
+  async findUserByUsername(username: string): Promise<IUserDocument | null> {
+    const cleanUsername = username.toLowerCase().trim();
+    return await User.findOne({ pointsUsername: cleanUsername })
+      .select('firstName lastName profilePhoto verified pointsUsername gamification.points gamification.level');
   }
 }
 

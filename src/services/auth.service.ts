@@ -1,7 +1,8 @@
-// src/services/auth.service.ts
+// src/services/auth.service.ts - UPDATED TO USE EXISTING POINTS SERVICE
 import { User, IUserDocument } from '../models';
 import { generateTokenPair } from '../utils/jwt';
 import logger from '../utils/logger';
+import pointsService from './points.service';
 
 interface RegisterData {
   email: string;
@@ -50,6 +51,14 @@ interface AuthResponse {
   user: UserResponse;
   accessToken: string;
   refreshToken: string;
+  dailyReward?: {
+    awarded: boolean;
+    points?: number;
+    streak?: number;
+    newBalance?: number;
+    leveledUp?: boolean;
+    newLevel?: number;
+  };
 }
 
 class AuthService {
@@ -111,13 +120,28 @@ class AuthService {
       gender,
       provider: 'email',
       gamification: {
-        points: 100,
+        points: 0,
         level: 1,
         badges: ['newcomer'],
         achievements: [],
         streak: 0,
+        lastActiveDate: new Date(),
       },
     });
+
+    // Award signup bonus through points service
+    try {
+      await pointsService.addPoints({
+        userId: user._id.toString(),
+        amount: 100,
+        type: 'bonus',
+        reason: 'Welcome bonus for signing up',
+        metadata: { source: 'registration' },
+      });
+      logger.info(`Signup bonus awarded to: ${email}`);
+    } catch (error) {
+      logger.error('Error awarding signup bonus:', error);
+    }
 
     // Generate tokens
     const { accessToken, refreshToken } = generateTokenPair(
@@ -127,6 +151,7 @@ class AuthService {
 
     // Save refresh token
     user.refreshToken = refreshToken;
+    user.lastSeen = new Date();
     await user.save();
 
     logger.info(`New user registered: ${email}`);
@@ -161,6 +186,31 @@ class AuthService {
       throw new Error('Invalid email or password');
     }
 
+    // Award daily login bonus through points service
+    let dailyReward: AuthResponse['dailyReward'] = {
+      awarded: false,
+    };
+
+    try {
+      const result = await pointsService.awardDailyLoginBonus(user._id.toString());
+      
+      if (result.awarded) {
+        // Fetch updated user data to get streak and level info
+        const updatedUser = await User.findById(user._id);
+        
+        dailyReward = {
+          awarded: true,
+          points: result.amount,
+          streak: updatedUser?.gamification?.streak || 1,
+          newBalance: result.newBalance,
+        };
+
+        logger.info(`Daily login bonus awarded to ${email}: ${result.amount} points`);
+      }
+    } catch (error) {
+      logger.error('Error awarding daily login bonus:', error);
+    }
+
     // Generate tokens
     const { accessToken, refreshToken } = generateTokenPair(
       user._id.toString(),
@@ -172,12 +222,19 @@ class AuthService {
     user.lastSeen = new Date();
     await user.save();
 
+    // Fetch fresh user data for response
+    const freshUser = await User.findById(user._id);
+    if (!freshUser) {
+      throw new Error('User not found');
+    }
+
     logger.info(`User logged in: ${email}`);
 
     return {
-      user: this.formatUserResponse(user),
+      user: this.formatUserResponse(freshUser),
       accessToken,
       refreshToken,
+      dailyReward,
     };
   }
 
@@ -306,6 +363,24 @@ class AuthService {
     await user.save();
 
     logger.info(`Account deleted for user: ${user.email}`);
+  }
+
+  /**
+   * Get user's current streak
+   */
+  async getUserStreak(userId: string): Promise<{
+    currentStreak: number;
+    lastLoginDate: Date | null;
+  }> {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    return {
+      currentStreak: user.gamification?.streak || 0,
+      lastLoginDate: user.gamification?.lastActiveDate || user.lastSeen || null,
+    };
   }
 }
 

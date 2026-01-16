@@ -57,5 +57,6 @@ router.put('/change-password', auth_middleware_1.authenticate, auth_controller_1
  * @access  Private
  */
 router.delete('/account', auth_middleware_1.authenticate, auth_controller_1.default.deleteAccount);
+router.get('/streak', auth_middleware_1.authenticate, auth_controller_1.default.getStreak); // ✅ NEW ENDPOINT
 exports.default = router;
 //# sourceMappingURL=auth.routes.js.map

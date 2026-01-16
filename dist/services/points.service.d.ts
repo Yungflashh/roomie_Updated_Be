@@ -1,3 +1,4 @@
+import { IUserDocument } from '../models/User';
 import { IPointsConfigDocument } from '../models/PointsConfig';
 interface AddPointsOptions {
     userId: string;
@@ -80,6 +81,14 @@ declare class PointsService {
      * Get point transaction history
      */
     getTransactionHistory(userId: string, page?: number, limit?: number, type?: string): Promise<any>;
+    /**
+     * Check if username is available
+     */
+    isUsernameAvailable(username: string, excludeUserId?: string): Promise<boolean>;
+    /**
+     * Find user by points username
+     */
+    findUserByUsername(username: string): Promise<IUserDocument | null>;
 }
 declare const _default: PointsService;
 export default _default;

@@ -37,6 +37,11 @@ declare class AuthController {
      * Delete account
      */
     deleteAccount(req: AuthRequest, res: Response): Promise<void>;
+    /**
+     * Get user's login streak
+     * GET /api/auth/streak
+     */
+    getStreak(req: AuthRequest, res: Response): Promise<void>;
 }
 declare const _default: AuthController;
 export default _default;

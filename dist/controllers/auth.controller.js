@@ -34,10 +34,27 @@ class AuthController {
     async login(req, res) {
         try {
             const result = await auth_service_1.default.login(req.body);
+            // Build message based on daily reward
+            let message = 'Login successful';
+            if (result.dailyReward?.awarded) {
+                const points = result.dailyReward.points || 0;
+                const streak = result.dailyReward.streak || 1;
+                if (streak >= 7) {
+                    message = `Welcome back! +${points} points 🔥 ${streak} day streak!`;
+                }
+                else {
+                    message = `Welcome back! +${points} points`;
+                }
+            }
             res.status(200).json({
                 success: true,
-                message: 'Login successful',
-                data: result,
+                message,
+                data: {
+                    user: result.user,
+                    accessToken: result.accessToken,
+                    refreshToken: result.refreshToken,
+                },
+                dailyReward: result.dailyReward,
             });
         }
         catch (error) {
@@ -195,6 +212,27 @@ class AuthController {
             res.status(statusCode).json({
                 success: false,
                 message: error.message || 'Failed to delete account',
+            });
+        }
+    }
+    /**
+     * Get user's login streak
+     * GET /api/auth/streak
+     */
+    async getStreak(req, res) {
+        try {
+            const userId = req.user?.userId;
+            const streak = await auth_service_1.default.getUserStreak(userId);
+            res.status(200).json({
+                success: true,
+                data: streak,
+            });
+        }
+        catch (error) {
+            logger_1.default.error('Get streak error:', error);
+            res.status(500).json({
+                success: false,
+                message: error.message || 'Failed to get streak',
             });
         }
     }

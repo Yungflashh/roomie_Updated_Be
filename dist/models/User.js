@@ -37,7 +37,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.User = void 0;
-// src/models/User.ts
+// src/models/User.ts - COMPLETE FILE WITH POINTS USERNAME
 const mongoose_1 = __importStar(require("mongoose"));
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 // Update the SocialLinkSchema
@@ -110,6 +110,18 @@ const userSchema = new mongoose_1.Schema({
     },
     bio: String,
     occupation: String,
+    // Points username - NEW FIELD
+    pointsUsername: {
+        type: String,
+        unique: true,
+        sparse: true, // Allow null but enforce uniqueness when set
+        lowercase: true,
+        trim: true,
+        minlength: 3,
+        maxlength: 20,
+        match: /^[a-z0-9_]+$/, // Only lowercase, numbers, underscores
+        index: true,
+    },
     location: {
         type: {
             type: String,
@@ -456,6 +468,7 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
 // =====================
 userSchema.index({ 'location.coordinates': '2dsphere' });
 userSchema.index({ email: 1 });
+userSchema.index({ pointsUsername: 1 }); // NEW INDEX
 userSchema.index({ isActive: 1 });
 userSchema.index({ 'subscription.plan': 1 });
 userSchema.index({ createdAt: -1 });

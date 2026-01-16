@@ -1,4 +1,4 @@
-// src/routes/points.routes.ts - NEW FILE
+// src/routes/points.routes.ts - COMPLETE FILE
 import { Router } from 'express';
 import pointsController from '../controllers/points.controller';
 import { authenticate } from '../middleware/auth.middleware';
@@ -44,5 +44,37 @@ router.get('/config', pointsController.getPointsConfig);
  * @query   action (match|game), targetId
  */
 router.get('/check-affordability', pointsController.checkAffordability);
+
+/**
+ * @route   PUT /api/v1/points/username
+ * @desc    Set or update points username
+ * @access  Private
+ * @body    { username: string }
+ */
+router.put('/username', pointsController.setPointsUsername);
+
+/**
+ * @route   GET /api/v1/points/username/check
+ * @desc    Check if username is available
+ * @access  Private
+ * @query   username
+ */
+router.get('/username/check', pointsController.checkUsernameAvailability);
+
+/**
+ * @route   GET /api/v1/points/username/search
+ * @desc    Search user by points username
+ * @access  Private
+ * @query   username
+ */
+router.get('/username/search', pointsController.searchByUsername);
+
+/**
+ * @route   POST /api/v1/points/gift
+ * @desc    Gift points to user by username
+ * @access  Private (Verified users only)
+ * @body    { username: string, amount: number, message: string }
+ */
+router.post('/gift', pointsController.giftPoints);
 
 export default router;
