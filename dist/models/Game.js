@@ -171,30 +171,64 @@ const gameSessionSchema = new mongoose_1.Schema({
         default: 0,
     },
     gameData: {
+        // Trivia / Speed Math / Geography Quiz
         questions: [{
                 question: String,
                 options: [String],
                 correctAnswer: String,
                 category: String,
+                flag: String,
             }],
+        // Word Scramble
         words: [{
                 scrambled: String,
                 hint: String,
                 answer: String,
             }],
+        // Emoji Guess
         challenges: [{
                 emojis: String,
                 answer: String,
                 hint: String,
             }],
+        // Memory Match
         cards: [{
                 id: Number,
                 emoji: String,
                 flipped: Boolean,
                 matched: Boolean,
             }],
+        // Logic Master
+        puzzles: [{
+                puzzle: String,
+                options: [String],
+                correctAnswer: String,
+                explanation: String,
+            }],
+        // Pattern Master
+        patterns: [{
+                pattern: [String],
+                options: [String],
+                correctAnswer: String,
+                type: String,
+            }],
+        // Color Challenge
+        colorChallenges: [{
+                colorName: String,
+                displayColor: String,
+                correctAnswer: String,
+            }],
+        colorOptions: [String],
+        // Quick Draw
+        drawingPrompts: [{
+                prompt: String,
+                category: String,
+                difficulty: String,
+            }],
+        // Common fields
         currentRound: Number,
         totalRounds: Number,
+        totalPairs: Number,
         timeLimit: Number,
     },
 }, {

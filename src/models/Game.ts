@@ -10,8 +10,8 @@ export interface IGameDocument extends Document {
   maxPlayers: number;
   difficulty: 'easy' | 'medium' | 'hard';
   pointsReward: number;
-  pointsCost: number; // Points required to play this game
-  levelRequired: number; // Minimum level required to play
+  pointsCost: number;
+  levelRequired: number;
   isActive: boolean;
   playCount: number;
   createdAt: Date;
@@ -90,7 +90,7 @@ export interface IGameSessionPlayer {
   rank: number;
   isReady?: boolean;
   completedAt?: Date;
-  pointsEarned?: number; // Points earned in this session
+  pointsEarned?: number;
   answers?: Array<{
     questionIndex: number;
     answer: string;
@@ -110,33 +110,67 @@ export interface IGameSessionDocument extends Document {
   endedAt?: Date;
   expiresAt?: Date;
   status: 'pending' | 'waiting' | 'active' | 'completed' | 'cancelled' | 'declined' | 'expired';
-  pointsCost: number; // Points deducted from each player to start
-  pointsAwarded: number; // Total points awarded in this session
+  pointsCost: number;
+  pointsAwarded: number;
   gameData?: {
+    // Trivia / Speed Math / Geography Quiz
     questions?: Array<{
       question: string;
       options: string[];
       correctAnswer: string;
       category?: string;
+      flag?: string; // For Geography Quiz
     }>;
+    // Word Scramble
     words?: Array<{
       scrambled: string;
       hint: string;
       answer: string;
     }>;
+    // Emoji Guess
     challenges?: Array<{
       emojis: string;
       answer: string;
       hint: string;
     }>;
+    // Memory Match
     cards?: Array<{
       id: number;
       emoji: string;
-      flipped: boolean;
-      matched: boolean;
+      flipped?: boolean;
+      matched?: boolean;
     }>;
+    // Logic Master
+    puzzles?: Array<{
+      puzzle: string;
+      options: string[];
+      correctAnswer: string;
+      explanation: string;
+    }>;
+    // Pattern Master
+    patterns?: Array<{
+      pattern: string[];
+      options: string[];
+      correctAnswer: string;
+      type: string;
+    }>;
+    // Color Challenge
+    colorChallenges?: Array<{
+      colorName: string;
+      displayColor: string;
+      correctAnswer: string;
+    }>;
+    colorOptions?: string[];
+    // Quick Draw
+    drawingPrompts?: Array<{
+      prompt: string;
+      category: string;
+      difficulty: string;
+    }>;
+    // Common fields
     currentRound?: number;
     totalRounds?: number;
+    totalPairs?: number;
     timeLimit?: number;
   };
   createdAt: Date;
@@ -218,30 +252,64 @@ const gameSessionSchema = new Schema<IGameSessionDocument>(
       default: 0,
     },
     gameData: {
+      // Trivia / Speed Math / Geography Quiz
       questions: [{
         question: String,
         options: [String],
         correctAnswer: String,
         category: String,
+        flag: String,
       }],
+      // Word Scramble
       words: [{
         scrambled: String,
         hint: String,
         answer: String,
       }],
+      // Emoji Guess
       challenges: [{
         emojis: String,
         answer: String,
         hint: String,
       }],
+      // Memory Match
       cards: [{
         id: Number,
         emoji: String,
         flipped: Boolean,
         matched: Boolean,
       }],
+      // Logic Master
+      puzzles: [{
+        puzzle: String,
+        options: [String],
+        correctAnswer: String,
+        explanation: String,
+      }],
+      // Pattern Master
+      patterns: [{
+        pattern: [String],
+        options: [String],
+        correctAnswer: String,
+        type: String,
+      }],
+      // Color Challenge
+      colorChallenges: [{
+        colorName: String,
+        displayColor: String,
+        correctAnswer: String,
+      }],
+      colorOptions: [String],
+      // Quick Draw
+      drawingPrompts: [{
+        prompt: String,
+        category: String,
+        difficulty: String,
+      }],
+      // Common fields
       currentRound: Number,
       totalRounds: Number,
+      totalPairs: Number,
       timeLimit: Number,
     },
   },

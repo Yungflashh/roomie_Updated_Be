@@ -48,6 +48,7 @@ export interface IGameSessionDocument extends Document {
             options: string[];
             correctAnswer: string;
             category?: string;
+            flag?: string;
         }>;
         words?: Array<{
             scrambled: string;
@@ -62,11 +63,35 @@ export interface IGameSessionDocument extends Document {
         cards?: Array<{
             id: number;
             emoji: string;
-            flipped: boolean;
-            matched: boolean;
+            flipped?: boolean;
+            matched?: boolean;
+        }>;
+        puzzles?: Array<{
+            puzzle: string;
+            options: string[];
+            correctAnswer: string;
+            explanation: string;
+        }>;
+        patterns?: Array<{
+            pattern: string[];
+            options: string[];
+            correctAnswer: string;
+            type: string;
+        }>;
+        colorChallenges?: Array<{
+            colorName: string;
+            displayColor: string;
+            correctAnswer: string;
+        }>;
+        colorOptions?: string[];
+        drawingPrompts?: Array<{
+            prompt: string;
+            category: string;
+            difficulty: string;
         }>;
         currentRound?: number;
         totalRounds?: number;
+        totalPairs?: number;
         timeLimit?: number;
     };
     createdAt: Date;

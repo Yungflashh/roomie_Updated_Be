@@ -1,4 +1,4 @@
-// src/services/game.service.ts - COMPLETE WITH POINTS SYSTEM
+// src/services/game.service.ts - COMPLETE VERSION WITH ALL GAMES
 import mongoose from 'mongoose';
 import { Game, GameSession, User, Match, Message, IGameDocument, IGameSessionDocument } from '../models';
 import pointsService from './points.service';
@@ -12,7 +12,9 @@ import {
 } from '../config/socket.config';
 import logger from '../utils/logger';
 
-// Trivia questions database
+// ============================================
+// GAME DATA - TRIVIA
+// ============================================
 const triviaQuestions = {
   general: [
     { question: 'What is the capital of France?', options: ['London', 'Berlin', 'Paris', 'Madrid'], correctAnswer: 'Paris' },
@@ -56,7 +58,9 @@ const triviaQuestions = {
   ],
 };
 
-// Word scramble words
+// ============================================
+// GAME DATA - WORD SCRAMBLE
+// ============================================
 const wordScrambleWords = [
   { word: 'ROOMMATE', hint: 'Someone you share a room with' },
   { word: 'APARTMENT', hint: 'A place to live' },
@@ -68,9 +72,16 @@ const wordScrambleWords = [
   { word: 'SHARING', hint: 'Giving part to others' },
   { word: 'COMFORTABLE', hint: 'Feeling at ease' },
   { word: 'LOCATION', hint: 'Where something is' },
+  { word: 'ADVENTURE', hint: 'Exciting journey' },
+  { word: 'BEAUTIFUL', hint: 'Very pretty' },
+  { word: 'COMMUNITY', hint: 'Group of people' },
+  { word: 'DELICIOUS', hint: 'Tasty food' },
+  { word: 'EXCELLENT', hint: 'Very good' },
 ];
 
-// Emoji guess challenges
+// ============================================
+// GAME DATA - EMOJI GUESS
+// ============================================
 const emojiChallenges = [
   { emojis: '🦁👑', answer: 'LION KING', hint: 'Disney movie' },
   { emojis: '🕷️🧑', answer: 'SPIDER-MAN', hint: 'Marvel superhero' },
@@ -82,33 +93,255 @@ const emojiChallenges = [
   { emojis: '🦇🧑', answer: 'BATMAN', hint: 'DC superhero' },
   { emojis: '👻👻👻', answer: 'GHOSTBUSTERS', hint: 'Who you gonna call?' },
   { emojis: '🎭😢😂', answer: 'DRAMA', hint: 'Genre of movies' },
+  { emojis: '🧜‍♀️🌊', answer: 'LITTLE MERMAID', hint: 'Disney princess under the sea' },
+  { emojis: '🤖👦', answer: 'IRON GIANT', hint: 'Animated robot movie' },
+  { emojis: '🏴‍☠️💀', answer: 'PIRATES', hint: 'Sailors who steal treasure' },
+  { emojis: '🦖🌴', answer: 'JURASSIC PARK', hint: 'Dinosaur movie' },
+  { emojis: '🧙‍♂️⚡', answer: 'HARRY POTTER', hint: 'Boy wizard' },
+];
+
+// ============================================
+// GAME DATA - GEOGRAPHY QUIZ
+// ============================================
+const geographyQuestions = [
+  { question: 'What is the capital of Japan?', options: ['Seoul', 'Beijing', 'Tokyo', 'Bangkok'], correctAnswer: 'Tokyo', flag: '🇯🇵' },
+  { question: 'Which country has the shape of a boot?', options: ['Spain', 'Italy', 'Greece', 'Portugal'], correctAnswer: 'Italy', flag: '🇮🇹' },
+  { question: 'The Amazon River flows through which continent?', options: ['Africa', 'Asia', 'South America', 'Australia'], correctAnswer: 'South America', flag: '🌎' },
+  { question: 'What is the largest country by area?', options: ['China', 'USA', 'Canada', 'Russia'], correctAnswer: 'Russia', flag: '🇷🇺' },
+  { question: 'Which ocean lies between Africa and Australia?', options: ['Atlantic', 'Pacific', 'Indian', 'Arctic'], correctAnswer: 'Indian', flag: '🌊' },
+  { question: 'What is the capital of Brazil?', options: ['Rio de Janeiro', 'São Paulo', 'Brasília', 'Salvador'], correctAnswer: 'Brasília', flag: '🇧🇷' },
+  { question: 'Mount Everest is located in which mountain range?', options: ['Alps', 'Andes', 'Rockies', 'Himalayas'], correctAnswer: 'Himalayas', flag: '🏔️' },
+  { question: 'Which country is known as the Land Down Under?', options: ['New Zealand', 'Australia', 'South Africa', 'Argentina'], correctAnswer: 'Australia', flag: '🇦🇺' },
+  { question: 'The Sahara Desert is located in which continent?', options: ['Asia', 'Africa', 'Australia', 'South America'], correctAnswer: 'Africa', flag: '🏜️' },
+  { question: 'What is the capital of Canada?', options: ['Toronto', 'Vancouver', 'Ottawa', 'Montreal'], correctAnswer: 'Ottawa', flag: '🇨🇦' },
+  { question: 'Which river runs through Egypt?', options: ['Amazon', 'Nile', 'Ganges', 'Yangtze'], correctAnswer: 'Nile', flag: '🇪🇬' },
+  { question: 'What is the smallest continent?', options: ['Europe', 'Antarctica', 'Australia', 'South America'], correctAnswer: 'Australia', flag: '🌏' },
+];
+
+// ============================================
+// GAME DATA - LOGIC MASTER (Puzzles)
+// ============================================
+const logicPuzzles = [
+  {
+    puzzle: 'If all Bloops are Razzles, and all Razzles are Lazzles, are all Bloops definitely Lazzles?',
+    options: ['Yes', 'No', 'Cannot determine', 'Only some'],
+    correctAnswer: 'Yes',
+    explanation: 'This is a transitive relationship - if A→B and B→C, then A→C',
+  },
+  {
+    puzzle: 'What comes next in the sequence: 2, 6, 12, 20, 30, ?',
+    options: ['40', '42', '44', '46'],
+    correctAnswer: '42',
+    explanation: 'The differences are 4, 6, 8, 10, 12... (increasing by 2)',
+  },
+  {
+    puzzle: 'A bat and ball cost $1.10. The bat costs $1 more than the ball. How much is the ball?',
+    options: ['$0.10', '$0.05', '$0.15', '$0.20'],
+    correctAnswer: '$0.05',
+    explanation: 'If ball = x, then bat = x + 1. So x + (x+1) = 1.10, meaning x = 0.05',
+  },
+  {
+    puzzle: 'Which number does not belong: 2, 5, 10, 17, __(26)__, 37, 50?',
+    options: ['5', '10', '17', 'All belong'],
+    correctAnswer: 'All belong',
+    explanation: 'Pattern: +3, +5, +7, +9, +11, +13 (differences increase by 2)',
+  },
+  {
+    puzzle: 'If you rearrange "CIFAIPC" you get the name of a(n):',
+    options: ['City', 'Animal', 'Ocean', 'Country'],
+    correctAnswer: 'Ocean',
+    explanation: 'CIFAIPC rearranges to PACIFIC',
+  },
+  {
+    puzzle: 'Mary\'s father has 5 daughters: Nana, Nene, Nini, Nono, and ___?',
+    options: ['Nunu', 'Mary', 'Nana', 'None'],
+    correctAnswer: 'Mary',
+    explanation: 'The question says "Mary\'s father" - so the fifth daughter is Mary!',
+  },
+  {
+    puzzle: 'What is the next letter: O, T, T, F, F, S, S, ?',
+    options: ['E', 'N', 'T', 'S'],
+    correctAnswer: 'E',
+    explanation: 'First letters of: One, Two, Three, Four, Five, Six, Seven, Eight',
+  },
+  {
+    puzzle: 'A farmer has 17 sheep. All but 9 die. How many are left?',
+    options: ['8', '9', '17', '0'],
+    correctAnswer: '9',
+    explanation: '"All but 9" means 9 survive',
+  },
+  {
+    puzzle: 'How many times can you subtract 5 from 25?',
+    options: ['5', '1', '4', 'Infinite'],
+    correctAnswer: '1',
+    explanation: 'You can only subtract 5 from 25 once. After that, you\'re subtracting from 20.',
+  },
+  {
+    puzzle: 'If there are 3 apples and you take away 2, how many do YOU have?',
+    options: ['1', '2', '3', '0'],
+    correctAnswer: '2',
+    explanation: 'You took 2 apples, so YOU have 2',
+  },
+];
+
+// ============================================
+// GAME DATA - PATTERN MASTER
+// ============================================
+const patternChallenges = [
+  {
+    pattern: ['🔴', '🔵', '🔴', '🔵', '🔴', '?'],
+    options: ['🔴', '🔵', '🟢', '🟡'],
+    correctAnswer: '🔵',
+    type: 'alternating',
+  },
+  {
+    pattern: ['1', '2', '4', '8', '16', '?'],
+    options: ['24', '32', '20', '18'],
+    correctAnswer: '32',
+    type: 'doubling',
+  },
+  {
+    pattern: ['🌙', '🌙', '⭐', '🌙', '🌙', '⭐', '🌙', '🌙', '?'],
+    options: ['🌙', '⭐', '☀️', '🌟'],
+    correctAnswer: '⭐',
+    type: 'repeating',
+  },
+  {
+    pattern: ['A', 'C', 'E', 'G', 'I', '?'],
+    options: ['J', 'K', 'L', 'M'],
+    correctAnswer: 'K',
+    type: 'skip_letter',
+  },
+  {
+    pattern: ['🟥', '🟧', '🟨', '🟩', '🟦', '?'],
+    options: ['🟥', '🟪', '⬛', '⬜'],
+    correctAnswer: '🟪',
+    type: 'rainbow',
+  },
+  {
+    pattern: ['3', '6', '9', '12', '15', '?'],
+    options: ['16', '17', '18', '19'],
+    correctAnswer: '18',
+    type: 'counting_by_3',
+  },
+  {
+    pattern: ['😀', '😃', '😄', '😁', '😆', '?'],
+    options: ['😅', '😂', '🤣', '😊'],
+    correctAnswer: '😅',
+    type: 'emoji_sequence',
+  },
+  {
+    pattern: ['↑', '→', '↓', '←', '↑', '?'],
+    options: ['↑', '→', '↓', '←'],
+    correctAnswer: '→',
+    type: 'rotation',
+  },
+  {
+    pattern: ['1', '1', '2', '3', '5', '8', '?'],
+    options: ['11', '12', '13', '14'],
+    correctAnswer: '13',
+    type: 'fibonacci',
+  },
+  {
+    pattern: ['🔲', '🔳', '🔲', '🔳', '🔲', '?'],
+    options: ['🔲', '🔳', '⬛', '⬜'],
+    correctAnswer: '🔳',
+    type: 'checkerboard',
+  },
+];
+
+// ============================================
+// GAME DATA - COLOR CHALLENGE
+// ============================================
+const colorChallenges = [
+  { colorName: 'RED', displayColor: '#3B82F6', correctAnswer: 'BLUE' }, // Word says RED, shown in BLUE
+  { colorName: 'GREEN', displayColor: '#EF4444', correctAnswer: 'RED' }, // Word says GREEN, shown in RED
+  { colorName: 'BLUE', displayColor: '#22C55E', correctAnswer: 'GREEN' }, // Word says BLUE, shown in GREEN
+  { colorName: 'YELLOW', displayColor: '#8B5CF6', correctAnswer: 'PURPLE' }, // Word says YELLOW, shown in PURPLE
+  { colorName: 'PURPLE', displayColor: '#F59E0B', correctAnswer: 'ORANGE' }, // Word says PURPLE, shown in ORANGE
+  { colorName: 'ORANGE', displayColor: '#EC4899', correctAnswer: 'PINK' }, // Word says ORANGE, shown in PINK
+  { colorName: 'PINK', displayColor: '#14B8A6', correctAnswer: 'TEAL' }, // Word says PINK, shown in TEAL
+  { colorName: 'BLACK', displayColor: '#FFFFFF', correctAnswer: 'WHITE' }, // Word says BLACK, shown in WHITE
+  { colorName: 'WHITE', displayColor: '#000000', correctAnswer: 'BLACK' }, // Word says WHITE, shown in BLACK
+  { colorName: 'TEAL', displayColor: '#EF4444', correctAnswer: 'RED' }, // Word says TEAL, shown in RED
+];
+
+const colorOptions = ['RED', 'BLUE', 'GREEN', 'YELLOW', 'PURPLE', 'ORANGE', 'PINK', 'TEAL', 'BLACK', 'WHITE'];
+
+// ============================================
+// GAME DATA - QUICK DRAW (Drawing prompts)
+// ============================================
+const quickDrawPrompts = [
+  { prompt: 'Cat', category: 'Animals', difficulty: 'easy' },
+  { prompt: 'House', category: 'Objects', difficulty: 'easy' },
+  { prompt: 'Sun', category: 'Nature', difficulty: 'easy' },
+  { prompt: 'Tree', category: 'Nature', difficulty: 'easy' },
+  { prompt: 'Car', category: 'Vehicles', difficulty: 'easy' },
+  { prompt: 'Fish', category: 'Animals', difficulty: 'easy' },
+  { prompt: 'Flower', category: 'Nature', difficulty: 'easy' },
+  { prompt: 'Book', category: 'Objects', difficulty: 'easy' },
+  { prompt: 'Pizza', category: 'Food', difficulty: 'medium' },
+  { prompt: 'Airplane', category: 'Vehicles', difficulty: 'medium' },
+  { prompt: 'Guitar', category: 'Objects', difficulty: 'medium' },
+  { prompt: 'Elephant', category: 'Animals', difficulty: 'medium' },
+  { prompt: 'Castle', category: 'Buildings', difficulty: 'medium' },
+  { prompt: 'Robot', category: 'Fantasy', difficulty: 'medium' },
+  { prompt: 'Bicycle', category: 'Vehicles', difficulty: 'medium' },
+  { prompt: 'Dragon', category: 'Fantasy', difficulty: 'hard' },
+  { prompt: 'Lighthouse', category: 'Buildings', difficulty: 'hard' },
+  { prompt: 'Octopus', category: 'Animals', difficulty: 'hard' },
+  { prompt: 'Treehouse', category: 'Buildings', difficulty: 'hard' },
+  { prompt: 'Rollercoaster', category: 'Objects', difficulty: 'hard' },
 ];
 
 class GameService {
-  /**
-   * Get all available games
-   */
+  private detectGameType(session: any): string {
+    if (!session?.gameData) return 'unknown';
+    
+    // Check for specific game data structures
+    if (session.gameData.colorChallenges && session.gameData.colorChallenges.length > 0) {
+      return 'color_challenge';
+    } else if (session.gameData.patterns && session.gameData.patterns.length > 0) {
+      return 'pattern_master';
+    } else if (session.gameData.puzzles && session.gameData.puzzles.length > 0) {
+      return 'logic_master';
+    } else if (session.gameData.drawingPrompts && session.gameData.drawingPrompts.length > 0) {
+      return 'quick_draw';
+    } else if (session.gameData.questions && session.gameData.questions.length > 0) {
+      const firstQuestion = session.gameData.questions[0];
+      // Speed Math has "=" in the question
+      if (firstQuestion.question && firstQuestion.question.includes('=')) {
+        return 'speed_math';
+      }
+      // Geography Quiz has a flag property
+      if (firstQuestion.flag) {
+        return 'geography_quiz';
+      }
+      return 'trivia';
+    } else if (session.gameData.challenges && session.gameData.challenges.length > 0) {
+      return 'emoji';
+    } else if (session.gameData.words && session.gameData.words.length > 0) {
+      return 'word_scramble';
+    } else if (session.gameData.cards && session.gameData.cards.length > 0) {
+      return 'memory';
+    }
+    
+    return 'unknown';
+  }
+
   async getAllGames(): Promise<IGameDocument[]> {
     const games = await Game.find({ isActive: true }).sort({ name: 1 });
     return games;
   }
 
-  /**
-   * Get game by ID
-   */
   async getGameById(gameId: string): Promise<IGameDocument> {
     const game = await Game.findOne({ _id: gameId, isActive: true });
-    
     if (!game) {
       throw new Error('Game not found');
     }
-
     return game;
   }
 
-  /**
-   * Get games available for user (based on level)
-   */
   async getAvailableGamesForUser(userId: string): Promise<{
     available: IGameDocument[];
     locked: Array<IGameDocument & { reason: string }>;
@@ -135,9 +368,6 @@ class GameService {
     return { available, locked };
   }
 
-  /**
-   * Check if user can play game (level + points)
-   */
   async canUserPlayGame(userId: string, gameId: string): Promise<{
     canPlay: boolean;
     reason?: string;
@@ -154,7 +384,6 @@ class GameService {
     if (!user) throw new Error('User not found');
     if (!game) throw new Error('Game not found');
 
-    // Check level requirement
     if (user.gamification.level < game.levelRequired) {
       return {
         canPlay: false,
@@ -164,10 +393,8 @@ class GameService {
       };
     }
 
-    // Calculate points cost (with premium discount)
     const pointsCost = await pointsService.calculateGameCost(userId, gameId);
 
-    // Check points requirement
     if (user.gamification.points < pointsCost) {
       return {
         canPlay: false,
@@ -185,31 +412,24 @@ class GameService {
     };
   }
 
-  /**
-   * Send game invitation (with points check)
-   */
   async sendGameInvitation(
     gameId: string,
     inviterId: string,
     invitedUserId: string,
     matchId: string
   ): Promise<IGameSessionDocument> {
-    // Verify game exists
     const game = await this.getGameById(gameId);
 
-    // Check if inviter can play
     const inviterCheck = await this.canUserPlayGame(inviterId, gameId);
     if (!inviterCheck.canPlay) {
       throw new Error(inviterCheck.reason || 'Cannot play this game');
     }
 
-    // Check if invited user can play
     const invitedCheck = await this.canUserPlayGame(invitedUserId, gameId);
     if (!invitedCheck.canPlay) {
       throw new Error(`Invited user: ${invitedCheck.reason || 'cannot play this game'}`);
     }
 
-    // Verify match exists and both users are part of it
     const match = await Match.findById(matchId);
     if (!match) {
       throw new Error('Match not found');
@@ -220,7 +440,6 @@ class GameService {
       throw new Error('Users are not part of this match');
     }
 
-    // Check for existing pending invitation
     const existingInvitation = await GameSession.findOne({
       match: matchId,
       game: gameId,
@@ -235,13 +454,9 @@ class GameService {
       throw new Error('There is already a pending game invitation');
     }
 
-    // Calculate points cost
     const pointsCost = await pointsService.calculateGameCost(inviterId, gameId);
-
-    // Generate game data
     const gameData = this.generateGameData(game.name);
 
-    // Create game session
     const sessionDoc = new GameSession({
       game: new mongoose.Types.ObjectId(gameId),
       match: new mongoose.Types.ObjectId(matchId),
@@ -254,23 +469,20 @@ class GameService {
       invitedBy: new mongoose.Types.ObjectId(inviterId),
       invitedUser: new mongoose.Types.ObjectId(invitedUserId),
       status: 'pending',
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
+      expiresAt: new Date(Date.now() + 5 * 60 * 1000),
       pointsCost,
       gameData,
     });
 
     const session = await sessionDoc.save();
 
-    // Populate for response
     await session.populate([
       { path: 'game', select: 'name description thumbnail category difficulty pointsReward pointsCost levelRequired' },
       { path: 'invitedBy', select: 'firstName lastName profilePhoto' },
     ]);
 
-    // Get inviter details
     const inviter = await User.findById(inviterId).select('firstName lastName profilePhoto');
 
-    // Create game invitation message
     const inviteMessage = await Message.create({
       match: matchId,
       sender: inviterId,
@@ -288,7 +500,6 @@ class GameService {
 
     await inviteMessage.populate('sender', 'firstName lastName profilePhoto');
 
-    // Emit socket events
     emitGameInvitation(invitedUserId, {
       sessionId: session._id,
       game: session.game,
@@ -304,9 +515,6 @@ class GameService {
     return session;
   }
 
-  /**
-   * Respond to game invitation
-   */
   async respondToInvitation(
     sessionId: string,
     userId: string,
@@ -335,7 +543,6 @@ class GameService {
     }
 
     if (accept) {
-      // Add player to session
       session.players.push({
         user: new mongoose.Types.ObjectId(userId),
         score: 0,
@@ -345,7 +552,6 @@ class GameService {
       session.status = 'waiting';
       await session.save();
 
-      // Notify inviter
       if (session.invitedBy) {
         const invitedByObj = session.invitedBy as any;
         const invitedById = invitedByObj._id ? invitedByObj._id.toString() : invitedByObj.toString();
@@ -358,7 +564,6 @@ class GameService {
         });
       }
 
-      // Update the game invite message status
       await Message.updateMany(
         { 'gameData.sessionId': sessionId },
         { 'gameData.status': 'accepted' }
@@ -369,7 +574,6 @@ class GameService {
       session.status = 'declined';
       await session.save();
 
-      // Notify inviter
       if (session.invitedBy) {
         const invitedByObj = session.invitedBy as any;
         const invitedById = invitedByObj._id ? invitedByObj._id.toString() : invitedByObj.toString();
@@ -381,7 +585,6 @@ class GameService {
         });
       }
 
-      // Update the game invite message status
       await Message.updateMany(
         { 'gameData.sessionId': sessionId },
         { 'gameData.status': 'declined' }
@@ -393,9 +596,6 @@ class GameService {
     return session;
   }
 
-  /**
-   * Start game session (deduct points from both players)
-   */
   async startGameSession(sessionId: string, userId: string): Promise<IGameSessionDocument> {
     const session = await GameSession.findById(sessionId)
       .populate('game')
@@ -405,7 +605,6 @@ class GameService {
 
     const game = session.game as any;
 
-    // Verify user is in the session
     const isPlayer = session.players.some(p => {
       const userObj = p.user as any;
       const playerId = userObj._id ? userObj._id.toString() : userObj.toString();
@@ -418,7 +617,6 @@ class GameService {
       throw new Error(`Minimum ${game.minPlayers} players required`);
     }
 
-    // Deduct points from all players
     const pointsCost = session.pointsCost || game.pointsCost;
     
     for (const player of session.players) {
@@ -440,7 +638,6 @@ class GameService {
         
         logger.info(`Deducted ${pointsCost} points from player ${playerId} for game ${game.name}`);
       } catch (error: any) {
-        // Refund points to players who already paid
         for (const paidPlayer of session.players) {
           const paidPlayerObj = paidPlayer.user as any;
           const paidPlayerId = paidPlayerObj._id ? paidPlayerObj._id.toString() : paidPlayerObj.toString();
@@ -467,7 +664,6 @@ class GameService {
     session.startedAt = new Date();
     await session.save();
 
-    // Emit game started event
     emitGameStarted(sessionId, {
       sessionId,
       game: session.game,
@@ -476,16 +672,12 @@ class GameService {
       startedAt: session.startedAt,
     });
 
-    // Increment game play count
     await Game.findByIdAndUpdate(game._id, { $inc: { playCount: 1 } });
 
     logger.info(`Game session started: ${sessionId}`);
     return session;
   }
 
-  /**
-   * Submit game answer (for trivia-type games)
-   */
   async submitAnswer(
     sessionId: string,
     userId: string,
@@ -508,24 +700,19 @@ class GameService {
       throw new Error('You are not in this game');
     }
 
-    logger.info(`Submit answer - Session: ${sessionId}, questionIndex: ${questionIndex}`);
-
     const question = session.gameData?.questions?.[questionIndex];
     if (!question) {
-      logger.error(`Question not found - questionIndex: ${questionIndex}`);
       throw new Error('Question not found');
     }
 
     const correct = answer === question.correctAnswer;
     
-    // Calculate points based on correctness and time
     let points = 0;
     if (correct) {
       const timeBonus = Math.max(0, 100 - timeSpent);
       points = 100 + Math.floor(timeBonus);
     }
 
-    // Record answer
     if (!player.answers) {
       player.answers = [];
     }
@@ -539,7 +726,6 @@ class GameService {
     player.score += points;
     await session.save();
 
-    // Emit score update
     emitScoreUpdate(sessionId, {
       sessionId,
       userId,
@@ -555,16 +741,14 @@ class GameService {
     };
   }
 
-  /**
-   * Submit all answers at once when player completes
-   */
   async submitAllAnswers(
     sessionId: string,
     userId: string,
-    answers: Array<{ questionIndex: number; answer: string; timeSpent: number }>
+    answers: Array<{ questionIndex: number; answer: string; timeSpent: number; correct?: boolean; points?: number }>
   ): Promise<{ score: number; correctCount: number; results: Array<{ questionIndex: number; correct: boolean; correctAnswer: string; points: number }> }> {
     logger.info(`========== SUBMIT ALL ANSWERS ==========`);
     logger.info(`Session: ${sessionId}, User: ${userId}, Answers count: ${answers.length}`);
+    logger.info(`Answers received: ${JSON.stringify(answers)}`);
     
     const session = await GameSession.findById(sessionId).populate('game');
 
@@ -590,54 +774,336 @@ class GameService {
 
     const player = session.players[playerIndex];
     
-    // Check if player already submitted
     if (player.completedAt) {
       logger.error(`Player ${userId} already submitted`);
       throw new Error('You have already submitted your answers');
     }
 
+    const gameType = this.detectGameType(session);
+    logger.info(`Game type detected: ${gameType}`);
+
     let totalScore = 0;
     const results: Array<{ questionIndex: number; correct: boolean; correctAnswer: string; points: number }> = [];
     const playerAnswers: Array<{ questionIndex: number; answer: string; correct: boolean; timeSpent: number }> = [];
 
-    // Calculate score for each answer
-    for (const ans of answers) {
-      const question = session.gameData?.questions?.[ans.questionIndex];
-      if (!question) continue;
+    if (gameType === 'trivia' || gameType === 'speed_math' || gameType === 'geography_quiz') {
+      for (const ans of answers) {
+        const question = session.gameData?.questions?.[ans.questionIndex];
+        if (!question) continue;
 
-      const correct = ans.answer === question.correctAnswer;
-      let points = 0;
-      
-      if (correct) {
-        const timeBonus = Math.max(0, 100 - ans.timeSpent * 5);
-        points = 100 + Math.floor(timeBonus);
+        const correct = ans.answer === question.correctAnswer;
+        let points = 0;
+        
+        if (correct) {
+          // Speed math has faster time bonus
+          const timeMultiplier = gameType === 'speed_math' ? 10 : 5;
+          const timeBonus = Math.max(0, 100 - ans.timeSpent * timeMultiplier);
+          points = 100 + Math.floor(timeBonus);
+        }
+
+        totalScore += points;
+        results.push({
+          questionIndex: ans.questionIndex,
+          correct,
+          correctAnswer: question.correctAnswer,
+          points,
+        });
+        
+        playerAnswers.push({
+          questionIndex: ans.questionIndex,
+          answer: ans.answer,
+          correct,
+          timeSpent: ans.timeSpent,
+        });
       }
+    } else if (gameType === 'emoji') {
+      for (const ans of answers) {
+        const challenge = session.gameData?.challenges?.[ans.questionIndex];
+        
+        if (!challenge) {
+          const correct = ans.correct ?? false;
+          const points = ans.points ?? 0;
+          totalScore += points;
+          results.push({
+            questionIndex: ans.questionIndex,
+            correct,
+            correctAnswer: 'N/A',
+            points,
+          });
+          playerAnswers.push({
+            questionIndex: ans.questionIndex,
+            answer: ans.answer,
+            correct,
+            timeSpent: ans.timeSpent,
+          });
+          continue;
+        }
 
-      totalScore += points;
-      results.push({
-        questionIndex: ans.questionIndex,
-        correct,
-        correctAnswer: question.correctAnswer,
-        points,
-      });
-      
-      playerAnswers.push({
-        questionIndex: ans.questionIndex,
-        answer: ans.answer,
-        correct,
-        timeSpent: ans.timeSpent,
-      });
+        const userAnswer = ans.answer.trim().toUpperCase();
+        const correctAnswer = challenge.answer.trim().toUpperCase();
+        const correct = userAnswer === correctAnswer;
+        
+        let points = 0;
+        if (correct) {
+          const timeBonus = Math.max(0, 100 - ans.timeSpent * 5);
+          points = 100 + Math.floor(timeBonus);
+        }
+
+        totalScore += points;
+        results.push({
+          questionIndex: ans.questionIndex,
+          correct,
+          correctAnswer: challenge.answer,
+          points,
+        });
+        
+        playerAnswers.push({
+          questionIndex: ans.questionIndex,
+          answer: ans.answer,
+          correct,
+          timeSpent: ans.timeSpent,
+        });
+      }
+    } else if (gameType === 'word_scramble') {
+      for (const ans of answers) {
+        const word = session.gameData?.words?.[ans.questionIndex];
+        
+        if (!word) {
+          const correct = ans.correct ?? false;
+          const points = ans.points ?? 0;
+          totalScore += points;
+          results.push({
+            questionIndex: ans.questionIndex,
+            correct,
+            correctAnswer: 'N/A',
+            points,
+          });
+          playerAnswers.push({
+            questionIndex: ans.questionIndex,
+            answer: ans.answer,
+            correct,
+            timeSpent: ans.timeSpent,
+          });
+          continue;
+        }
+
+        const userAnswer = ans.answer.trim().toUpperCase();
+        const correctAnswer = word.answer.trim().toUpperCase();
+        const correct = userAnswer === correctAnswer;
+        
+        let points = 0;
+        if (correct) {
+          const timeBonus = Math.max(0, 100 - ans.timeSpent * 3);
+          points = 100 + Math.floor(timeBonus);
+        }
+
+        totalScore += points;
+        results.push({
+          questionIndex: ans.questionIndex,
+          correct,
+          correctAnswer: word.answer,
+          points,
+        });
+        
+        playerAnswers.push({
+          questionIndex: ans.questionIndex,
+          answer: ans.answer,
+          correct,
+          timeSpent: ans.timeSpent,
+        });
+      }
+    } else if (gameType === 'logic_master') {
+      for (const ans of answers) {
+        const puzzle = session.gameData?.puzzles?.[ans.questionIndex];
+        
+        if (!puzzle) {
+          const correct = ans.correct ?? false;
+          const points = ans.points ?? 0;
+          totalScore += points;
+          results.push({
+            questionIndex: ans.questionIndex,
+            correct,
+            correctAnswer: 'N/A',
+            points,
+          });
+          playerAnswers.push({
+            questionIndex: ans.questionIndex,
+            answer: ans.answer,
+            correct,
+            timeSpent: ans.timeSpent,
+          });
+          continue;
+        }
+
+        const correct = ans.answer === puzzle.correctAnswer;
+        
+        let points = 0;
+        if (correct) {
+          // Logic puzzles have less time pressure
+          const timeBonus = Math.max(0, 100 - ans.timeSpent * 2);
+          points = 150 + Math.floor(timeBonus); // Higher base points for logic
+        }
+
+        totalScore += points;
+        results.push({
+          questionIndex: ans.questionIndex,
+          correct,
+          correctAnswer: puzzle.correctAnswer,
+          points,
+        });
+        
+        playerAnswers.push({
+          questionIndex: ans.questionIndex,
+          answer: ans.answer,
+          correct,
+          timeSpent: ans.timeSpent,
+        });
+      }
+    } else if (gameType === 'pattern_master') {
+      for (const ans of answers) {
+        const pattern = session.gameData?.patterns?.[ans.questionIndex];
+        
+        if (!pattern) {
+          const correct = ans.correct ?? false;
+          const points = ans.points ?? 0;
+          totalScore += points;
+          results.push({
+            questionIndex: ans.questionIndex,
+            correct,
+            correctAnswer: 'N/A',
+            points,
+          });
+          playerAnswers.push({
+            questionIndex: ans.questionIndex,
+            answer: ans.answer,
+            correct,
+            timeSpent: ans.timeSpent,
+          });
+          continue;
+        }
+
+        const correct = ans.answer === pattern.correctAnswer;
+        
+        let points = 0;
+        if (correct) {
+          const timeBonus = Math.max(0, 100 - ans.timeSpent * 5);
+          points = 100 + Math.floor(timeBonus);
+        }
+
+        totalScore += points;
+        results.push({
+          questionIndex: ans.questionIndex,
+          correct,
+          correctAnswer: pattern.correctAnswer,
+          points,
+        });
+        
+        playerAnswers.push({
+          questionIndex: ans.questionIndex,
+          answer: ans.answer,
+          correct,
+          timeSpent: ans.timeSpent,
+        });
+      }
+    } else if (gameType === 'color_challenge') {
+      for (const ans of answers) {
+        const challenge = session.gameData?.colorChallenges?.[ans.questionIndex];
+        
+        if (!challenge) {
+          const correct = ans.correct ?? false;
+          const points = ans.points ?? 0;
+          totalScore += points;
+          results.push({
+            questionIndex: ans.questionIndex,
+            correct,
+            correctAnswer: 'N/A',
+            points,
+          });
+          playerAnswers.push({
+            questionIndex: ans.questionIndex,
+            answer: ans.answer,
+            correct,
+            timeSpent: ans.timeSpent,
+          });
+          continue;
+        }
+
+        const correct = ans.answer.toUpperCase() === challenge.correctAnswer.toUpperCase();
+        
+        let points = 0;
+        if (correct) {
+          // Color challenge rewards speed heavily
+          const timeBonus = Math.max(0, 150 - ans.timeSpent * 20);
+          points = 50 + Math.floor(timeBonus);
+        }
+
+        totalScore += points;
+        results.push({
+          questionIndex: ans.questionIndex,
+          correct,
+          correctAnswer: challenge.correctAnswer,
+          points,
+        });
+        
+        playerAnswers.push({
+          questionIndex: ans.questionIndex,
+          answer: ans.answer,
+          correct,
+          timeSpent: ans.timeSpent,
+        });
+      }
+    } else if (gameType === 'quick_draw' || gameType === 'memory') {
+      // These games use client-calculated scores
+      for (const ans of answers) {
+        const correct = ans.correct ?? false;
+        const points = ans.points ?? 0;
+
+        totalScore += points;
+        results.push({
+          questionIndex: ans.questionIndex,
+          correct,
+          correctAnswer: gameType === 'memory' ? `${session.gameData?.totalPairs || 8} pairs` : 'Drawing',
+          points,
+        });
+        
+        playerAnswers.push({
+          questionIndex: ans.questionIndex,
+          answer: ans.answer,
+          correct,
+          timeSpent: ans.timeSpent,
+        });
+      }
+      logger.info(`${gameType} game - using client score: ${totalScore}`);
+    } else {
+      logger.warn(`Unknown game type: ${gameType}, using client-provided scores`);
+      for (const ans of answers) {
+        const correct = ans.correct ?? false;
+        const points = ans.points ?? 0;
+
+        totalScore += points;
+        results.push({
+          questionIndex: ans.questionIndex,
+          correct,
+          correctAnswer: 'N/A',
+          points,
+        });
+        
+        playerAnswers.push({
+          questionIndex: ans.questionIndex,
+          answer: ans.answer,
+          correct,
+          timeSpent: ans.timeSpent,
+        });
+      }
     }
 
-    // Update player in session
     player.score = totalScore;
     player.answers = playerAnswers;
     player.completedAt = new Date();
     await session.save();
 
-    logger.info(`Player ${userId} score calculated: ${totalScore}, correct: ${results.filter(r => r.correct).length}`);
+    logger.info(`Player ${userId} final score: ${totalScore}, correct: ${results.filter(r => r.correct).length}`);
 
-    // Emit score update to game room
     emitScoreUpdate(sessionId, {
       sessionId,
       userId,
@@ -646,7 +1112,6 @@ class GameService {
       correctCount: results.filter(r => r.correct).length,
     });
 
-    // Check if all players have completed
     const updatedSession = await GameSession.findById(sessionId);
     const allCompleted = updatedSession?.players.every(p => p.completedAt);
     
@@ -665,9 +1130,6 @@ class GameService {
     };
   }
 
-  /**
-   * Finalize game session (award points to winner)
-   */
   private async finalizeGameSession(sessionId: string): Promise<void> {
     logger.info(`========== FINALIZE GAME SESSION WITH POINTS ==========`);
     
@@ -679,7 +1141,6 @@ class GameService {
 
     const game = session.game as any;
 
-    // Calculate rankings
     const sortedPlayers = [...session.players].sort((a, b) => b.score - a.score);
     sortedPlayers.forEach((player, index) => {
       const playerUserId = (player.user as any)._id 
@@ -698,14 +1159,12 @@ class GameService {
       }
     });
 
-    // Determine winner and award points
     const winner = sortedPlayers[0];
     
     if (winner && winner.score > 0) {
       const winnerUserId = (winner.user as any)._id || winner.user;
       session.winner = winnerUserId;
       
-      // Award winner points
       const pointsReward = game.pointsReward;
       if (pointsReward > 0) {
         const pointsResult = await pointsService.addPoints({
@@ -729,7 +1188,6 @@ class GameService {
       }
     }
 
-    // Award consolation points to other players (50% of reward)
     const consolationPoints = Math.floor((game.pointsReward || 0) * 0.5);
     if (consolationPoints > 0) {
       for (let i = 1; i < sortedPlayers.length; i++) {
@@ -758,7 +1216,6 @@ class GameService {
     session.endedAt = new Date();
     await session.save();
 
-    // Update game invite message
     const winnerUser = winner ? await User.findById((winner.user as any)._id || winner.user).select('firstName lastName') : null;
     await Message.updateMany(
       { 'gameData.sessionId': sessionId },
@@ -769,7 +1226,6 @@ class GameService {
       }
     );
 
-    // Emit game ended
     emitGameEnded(sessionId, {
       sessionId,
       winner: winner ? {
@@ -793,9 +1249,6 @@ class GameService {
     logger.info(`✅ Game session finalized with points awarded`);
   }
 
-  /**
-   * Complete game session
-   */
   async completeGameSession(sessionId: string): Promise<IGameSessionDocument> {
     const session = await GameSession.findById(sessionId)
       .populate('game')
@@ -809,9 +1262,6 @@ class GameService {
     return session;
   }
 
-  /**
-   * Get active game session for a match
-   */
   async getActiveGameSession(matchId: string): Promise<IGameSessionDocument | null> {
     const session = await GameSession.findOne({
       match: matchId,
@@ -824,9 +1274,6 @@ class GameService {
     return session;
   }
 
-  /**
-   * Get game session by ID
-   */
   async getGameSession(sessionId: string): Promise<IGameSessionDocument> {
     const session = await GameSession.findById(sessionId)
       .populate('game')
@@ -841,9 +1288,6 @@ class GameService {
     return session;
   }
 
-  /**
-   * Cancel game invitation
-   */
   async cancelInvitation(sessionId: string, userId: string): Promise<void> {
     const session = await GameSession.findById(sessionId);
 
@@ -875,9 +1319,6 @@ class GameService {
     }
   }
 
-  /**
-   * Get user game history
-   */
   async getUserGameHistory(
     userId: string,
     page: number = 1,
@@ -915,9 +1356,6 @@ class GameService {
     };
   }
 
-  /**
-   * Get game leaderboard
-   */
   async getGameLeaderboard(gameId: string, limit: number = 10): Promise<any[]> {
     const sessions = await GameSession.find({
       game: gameId,
@@ -965,97 +1403,210 @@ class GameService {
     return leaderboard;
   }
 
-  /**
-   * Generate game data based on game type
-   */
+  // ============================================
+  // GAME DATA GENERATORS
+  // ============================================
   private generateGameData(gameName: string): any {
     switch (gameName) {
-      case 'Trivia Master': {
-        const allQuestions: any[] = [];
-        const categories = Object.keys(triviaQuestions) as (keyof typeof triviaQuestions)[];
-        
-        categories.forEach(category => {
-          const categoryQuestions = triviaQuestions[category].map(q => ({
-            ...q,
-            category,
-          }));
-          allQuestions.push(...categoryQuestions);
-        });
+      case 'Trivia Master':
+        return this.generateTriviaData();
 
-        const shuffled = allQuestions.sort(() => Math.random() - 0.5);
-        const selectedQuestions = shuffled.slice(0, 10);
+      case 'Word Scramble':
+        return this.generateWordScrambleData();
 
-        return {
-          questions: selectedQuestions,
-          totalRounds: 10,
-          currentRound: 0,
-          timeLimit: 15,
-        };
-      }
+      case 'Emoji Guess':
+        return this.generateEmojiGuessData();
 
-      case 'Word Scramble': {
-        const shuffled = [...wordScrambleWords].sort(() => Math.random() - 0.5);
-        const selectedWords = shuffled.slice(0, 5);
+      case 'Speed Math':
+        return this.generateSpeedMathData();
 
-        return {
-          words: selectedWords.map(w => ({
-            scrambled: this.scrambleWord(w.word),
-            hint: w.hint,
-            answer: w.word,
-          })),
-          totalRounds: 5,
-          currentRound: 0,
-          timeLimit: 30,
-        };
-      }
+      case 'Memory Match':
+        return this.generateMemoryMatchData();
 
-      case 'Emoji Guess': {
-        const shuffled = [...emojiChallenges].sort(() => Math.random() - 0.5);
-        const selectedChallenges = shuffled.slice(0, 5);
+      case 'Geography Quiz':
+        return this.generateGeographyQuizData();
 
-        return {
-          challenges: selectedChallenges,
-          totalRounds: 5,
-          currentRound: 0,
-          timeLimit: 20,
-        };
-      }
+      case 'Logic Master':
+        return this.generateLogicMasterData();
 
-      case 'Speed Math': {
-        const questions = [];
-        for (let i = 0; i < 10; i++) {
-          const question = this.generateMathQuestion();
-          questions.push(question);
-        }
+      case 'Pattern Master':
+        return this.generatePatternMasterData();
 
-        return {
-          questions,
-          totalRounds: 10,
-          currentRound: 0,
-          timeLimit: 10,
-        };
-      }
+      case 'Color Challenge':
+        return this.generateColorChallengeData();
 
-      case 'Memory Match': {
-        const items = ['🍎', '🍊', '🍋', '🍇', '🍓', '🍒', '🥝', '🍑'];
-        const pairs = [...items, ...items];
-        const shuffledPairs = pairs.sort(() => Math.random() - 0.5);
-
-        return {
-          cards: shuffledPairs.map((emoji, index) => ({
-            id: index,
-            emoji,
-          })),
-          totalPairs: items.length,
-          timeLimit: 60,
-        };
-      }
+      case 'Quick Draw':
+        return this.generateQuickDrawData();
 
       default:
+        logger.warn(`Unknown game: ${gameName}, returning empty data`);
         return {};
     }
   }
 
+  private generateTriviaData(): any {
+    const allQuestions: any[] = [];
+    const categories = Object.keys(triviaQuestions) as (keyof typeof triviaQuestions)[];
+    
+    categories.forEach(category => {
+      const categoryQuestions = triviaQuestions[category].map(q => ({
+        ...q,
+        category,
+      }));
+      allQuestions.push(...categoryQuestions);
+    });
+
+    const shuffled = allQuestions.sort(() => Math.random() - 0.5);
+    const selectedQuestions = shuffled.slice(0, 10);
+
+    return {
+      questions: selectedQuestions,
+      totalRounds: 10,
+      currentRound: 0,
+      timeLimit: 15,
+    };
+  }
+
+  private generateWordScrambleData(): any {
+    const shuffled = [...wordScrambleWords].sort(() => Math.random() - 0.5);
+    const selectedWords = shuffled.slice(0, 5);
+
+    return {
+      words: selectedWords.map(w => ({
+        scrambled: this.scrambleWord(w.word),
+        hint: w.hint,
+        answer: w.word,
+      })),
+      totalRounds: 5,
+      currentRound: 0,
+      timeLimit: 30,
+    };
+  }
+
+  private generateEmojiGuessData(): any {
+    const shuffled = [...emojiChallenges].sort(() => Math.random() - 0.5);
+    const selectedChallenges = shuffled.slice(0, 5);
+
+    return {
+      challenges: selectedChallenges,
+      totalRounds: 5,
+      currentRound: 0,
+      timeLimit: 20,
+    };
+  }
+
+  private generateSpeedMathData(): any {
+    const questions = [];
+    for (let i = 0; i < 10; i++) {
+      const question = this.generateMathQuestion();
+      questions.push(question);
+    }
+
+    return {
+      questions,
+      totalRounds: 10,
+      currentRound: 0,
+      timeLimit: 10,
+    };
+  }
+
+  private generateMemoryMatchData(): any {
+    const items = ['🍎', '🍊', '🍋', '🍇', '🍓', '🍒', '🥝', '🍑'];
+    const pairs = [...items, ...items];
+    const shuffledPairs = pairs.sort(() => Math.random() - 0.5);
+
+    return {
+      cards: shuffledPairs.map((emoji, index) => ({
+        id: index,
+        emoji,
+      })),
+      totalPairs: items.length,
+      timeLimit: 60,
+    };
+  }
+
+  private generateGeographyQuizData(): any {
+    const shuffled = [...geographyQuestions].sort(() => Math.random() - 0.5);
+    const selectedQuestions = shuffled.slice(0, 10);
+
+    return {
+      questions: selectedQuestions,
+      totalRounds: 10,
+      currentRound: 0,
+      timeLimit: 15,
+    };
+  }
+
+  private generateLogicMasterData(): any {
+    const shuffled = [...logicPuzzles].sort(() => Math.random() - 0.5);
+    const selectedPuzzles = shuffled.slice(0, 5);
+
+    return {
+      puzzles: selectedPuzzles.map(p => ({
+        puzzle: p.puzzle,
+        options: p.options,
+        correctAnswer: p.correctAnswer,
+        explanation: p.explanation,
+      })),
+      totalRounds: 5,
+      currentRound: 0,
+      timeLimit: 45, // More time for logic puzzles
+    };
+  }
+
+  private generatePatternMasterData(): any {
+    const shuffled = [...patternChallenges].sort(() => Math.random() - 0.5);
+    const selectedPatterns = shuffled.slice(0, 8);
+
+    return {
+      patterns: selectedPatterns.map(p => ({
+        pattern: p.pattern,
+        options: p.options,
+        correctAnswer: p.correctAnswer,
+        type: p.type,
+      })),
+      totalRounds: 8,
+      currentRound: 0,
+      timeLimit: 15,
+    };
+  }
+
+  private generateColorChallengeData(): any {
+    const shuffled = [...colorChallenges].sort(() => Math.random() - 0.5);
+    const selectedChallenges = shuffled.slice(0, 15); // More rounds, faster pace
+
+    return {
+      colorChallenges: selectedChallenges.map(c => ({
+        colorName: c.colorName,
+        displayColor: c.displayColor,
+        correctAnswer: c.correctAnswer,
+      })),
+      colorOptions: colorOptions,
+      totalRounds: 15,
+      currentRound: 0,
+      timeLimit: 5, // Very fast - it's a reflex game
+    };
+  }
+
+  private generateQuickDrawData(): any {
+    const shuffled = [...quickDrawPrompts].sort(() => Math.random() - 0.5);
+    const selectedPrompts = shuffled.slice(0, 5);
+
+    return {
+      drawingPrompts: selectedPrompts.map(p => ({
+        prompt: p.prompt,
+        category: p.category,
+        difficulty: p.difficulty,
+      })),
+      totalRounds: 5,
+      currentRound: 0,
+      timeLimit: 30, // 30 seconds per drawing
+    };
+  }
+
+  // ============================================
+  // HELPER METHODS
+  // ============================================
   private scrambleWord(word: string): string {
     const arr = word.split('');
     for (let i = arr.length - 1; i > 0; i--) {
