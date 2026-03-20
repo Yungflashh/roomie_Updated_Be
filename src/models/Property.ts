@@ -18,6 +18,12 @@ export interface IPropertyDocument extends Document {
   };
   photos: string[];
   videos?: string[];
+  virtualTour?: {
+    enabled: boolean;
+    url?: string;
+    photos360?: string[];
+    floorPlanUrl?: string;
+  };
   amenities: string[];
   bedrooms: number;
   bathrooms: number;
@@ -103,6 +109,12 @@ const propertySchema = new Schema<IPropertyDocument>(
       type: [String],
       default: [],
     },
+    virtualTour: {
+      enabled: { type: Boolean, default: false },
+      url: String,
+      photos360: [String],
+      floorPlanUrl: String,
+    },
     amenities: {
       type: [String],
       default: [],
@@ -150,7 +162,7 @@ const propertySchema = new Schema<IPropertyDocument>(
     status: {
       type: String,
       enum: ['available', 'rented', 'pending', 'inactive'],
-      default: 'available',
+      default: 'pending',
       index: true,
     },
     views: {
@@ -177,5 +189,16 @@ propertySchema.index({ landlord: 1 });
 propertySchema.index({ status: 1 });
 propertySchema.index({ price: 1 });
 propertySchema.index({ createdAt: -1 });
+
+// Property search filter indexes
+propertySchema.index({ status: 1, price: 1, createdAt: -1 });
+propertySchema.index({ status: 1, type: 1 });
+propertySchema.index({ 'location.city': 1 });
+propertySchema.index({ 'location.state': 1 });
+propertySchema.index({ type: 1 });
+propertySchema.index({ bedrooms: 1 });
+propertySchema.index({ bathrooms: 1 });
+propertySchema.index({ petFriendly: 1 });
+propertySchema.index({ furnished: 1 });
 
 export const Property = mongoose.model<IPropertyDocument>('Property', propertySchema);

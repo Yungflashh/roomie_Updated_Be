@@ -6,6 +6,7 @@ import { SharedListing, ISharedListingDocument } from '../models/SharedListing';
 import { RoommateGroup } from '../models/RoommateGroup';
 import { UserPoints } from '../models/UserPoints';
 import { emitToUser, getIO } from '../config/socket.config';
+import weeklyChallengeService from './weeklyChallenge.service';
 import logger from '../utils/logger';
 
 // Constants for points system
@@ -473,6 +474,9 @@ class RoommateFeaturesServiceV2 {
     }
 
     await chore.save();
+
+    // Track challenge progress
+    try { await weeklyChallengeService.trackAction(userId, 'chore_complete'); } catch (e) { logger.warn('Challenge tracking (chore_complete) error:', e); }
 
     const io = getIO();
     if (io) {

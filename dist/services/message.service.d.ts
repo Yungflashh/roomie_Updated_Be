@@ -7,6 +7,7 @@ interface SendMessageData {
     content?: string;
     mediaUrl?: string;
     thumbnail?: string;
+    replyTo?: string;
     metadata?: {
         duration?: number;
         fileSize?: number;
@@ -29,6 +30,10 @@ declare class MessageService {
      * Mark messages as read
      */
     markAsRead(matchId: string, userId: string): Promise<void>;
+    /**
+     * Clear all messages in a match for the requesting user (soft delete)
+     */
+    clearChat(matchId: string, userId: string): Promise<number>;
     /**
      * Delete a message
      */

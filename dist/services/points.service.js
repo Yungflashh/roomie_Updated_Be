@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -103,6 +136,16 @@ class PointsService {
                 },
             });
             logger_1.default.info(`Added ${amount} points to user ${userId}. New balance: ${newPoints}`);
+            // Track challenge progress for points earned (lazy import to avoid circular dependency)
+            if (type !== 'level_up' && type !== 'achievement') {
+                try {
+                    const wcs = (await Promise.resolve().then(() => __importStar(require('./weeklyChallenge.service')))).default;
+                    await wcs.trackAction(userId, 'points_earned', amount);
+                }
+                catch (e) {
+                    logger_1.default.warn('Challenge tracking (points_earned) error:', e);
+                }
+            }
             // Award level up bonus if leveled up
             if (leveledUp) {
                 const levelUpBonus = Math.floor(newLevel * 10); // 10 points per new level
@@ -238,11 +281,10 @@ class PointsService {
             if (lastActive === today) {
                 return { awarded: false };
             }
-            // Calculate bonus (premium users get extra)
-            let bonus = config.dailyLoginBonus;
-            if (user.subscription.plan === 'premium' || user.subscription.plan === 'pro') {
-                bonus += config.premiumDailyBonus;
-            }
+            // Calculate bonus with premium multiplier
+            const premiumService = require('./premium.service').default;
+            const limits = premiumService.getLimits(user);
+            let bonus = config.dailyLoginBonus * limits.dailyBonusMultiplier;
             // Update streak
             const yesterday = new Date();
             yesterday.setDate(yesterday.getDate() - 1);

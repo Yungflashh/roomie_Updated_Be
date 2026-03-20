@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import matchController from '../controllers/match.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { requireVerification } from '../middleware/verification.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { likeUserValidation, paginationValidation } from '../validation/schemas';
 
@@ -9,6 +10,20 @@ const router = Router();
 
 // All routes require authentication
 router.use(authenticate);
+
+/**
+ * @route   GET /api/v1/matches/feed
+ * @desc    Aggregated matches feed — single endpoint for the Matches screen
+ * @access  Private
+ */
+router.get('/feed', matchController.getMatchesFeed);
+
+/**
+ * @route   GET /api/v1/matches/near-you
+ * @desc    Refresh only Near You data (lightweight, for distance changes)
+ * @access  Private
+ */
+router.get('/near-you', matchController.refreshNearYou);
 
 /**
  * @route   GET /api/v1/matches/discover
@@ -36,7 +51,7 @@ router.get('/likes/sent', matchController.getSentLikes);
  * @desc    Like a user (swipe right)
  * @access  Private
  */
-router.post('/like/:targetUserId', validate(likeUserValidation), matchController.likeUser);
+router.post('/like/:targetUserId', requireVerification, validate(likeUserValidation), matchController.likeUser);
 
 /**
  * @route   POST /api/v1/matches/pass/:targetUserId
@@ -58,6 +73,13 @@ router.get('/', validate(paginationValidation), matchController.getMatches);
  * @access  Private
  */
 router.get('/:matchId', matchController.getMatchDetails);
+
+/**
+ * @route   POST /api/v1/matches/listing-inquiry
+ * @desc    Find or create a match for listing chat
+ * @access  Private
+ */
+router.post('/listing-inquiry', requireVerification, matchController.listingInquiry);
 
 /**
  * @route   DELETE /api/v1/matches/:matchId

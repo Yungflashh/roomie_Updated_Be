@@ -11,7 +11,7 @@ class UserService {
       .select(
         'firstName lastName email phoneNumber profilePhoto photos bio occupation ' +
         'gender dateOfBirth location preferences lifestyle interests languages ' +
-        'socialLinks verified emailVerified createdAt lastSeen'
+        'socialLinks verified emailVerified createdAt lastSeen subscription'
       )
       .lean();
 
@@ -53,7 +53,8 @@ class UserService {
       socialLinks: user.socialLinks || [],
       verified: user.verified,
       emailVerified: user.emailVerified,
-      // createdAt: user.createdAt,
+      subscription: (user as any).subscription,
+      createdAt: (user as any).createdAt,
     };
   }
   /**

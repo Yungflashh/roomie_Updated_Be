@@ -35,6 +35,13 @@ export interface IGameSessionDocument extends Document {
     players: IGameSessionPlayer[];
     invitedBy?: mongoose.Types.ObjectId;
     invitedUser?: mongoose.Types.ObjectId;
+    invitations?: Array<{
+        user: mongoose.Types.ObjectId;
+        matchId: mongoose.Types.ObjectId;
+        status: 'pending' | 'accepted' | 'declined' | 'expired';
+        respondedAt?: Date;
+    }>;
+    mode?: 'duel' | 'multiplayer';
     winner?: mongoose.Types.ObjectId;
     startedAt?: Date;
     endedAt?: Date;

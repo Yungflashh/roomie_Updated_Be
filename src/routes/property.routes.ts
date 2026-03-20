@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import propertyController from '../controllers/property.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { requireVerification } from '../middleware/verification.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { body } from 'express-validator';
 
@@ -70,7 +71,7 @@ router.get('/liked', propertyController.getLikedProperties);
  * @desc    Get property details
  * @access  Private
  */
-router.get('/:propertyId', propertyController.getProperty);
+router.get('/:propertyId', requireVerification, propertyController.getProperty);
 
 /**
  * @route   PUT /api/v1/properties/:propertyId

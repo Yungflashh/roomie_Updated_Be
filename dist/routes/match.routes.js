@@ -7,11 +7,24 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const match_controller_1 = __importDefault(require("../controllers/match.controller"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
+const verification_middleware_1 = require("../middleware/verification.middleware");
 const validation_middleware_1 = require("../middleware/validation.middleware");
 const schemas_1 = require("../validation/schemas");
 const router = (0, express_1.Router)();
 // All routes require authentication
 router.use(auth_middleware_1.authenticate);
+/**
+ * @route   GET /api/v1/matches/feed
+ * @desc    Aggregated matches feed — single endpoint for the Matches screen
+ * @access  Private
+ */
+router.get('/feed', match_controller_1.default.getMatchesFeed);
+/**
+ * @route   GET /api/v1/matches/near-you
+ * @desc    Refresh only Near You data (lightweight, for distance changes)
+ * @access  Private
+ */
+router.get('/near-you', match_controller_1.default.refreshNearYou);
 /**
  * @route   GET /api/v1/matches/discover
  * @desc    Get potential matches (Tinder-style)
@@ -35,7 +48,7 @@ router.get('/likes/sent', match_controller_1.default.getSentLikes);
  * @desc    Like a user (swipe right)
  * @access  Private
  */
-router.post('/like/:targetUserId', (0, validation_middleware_1.validate)(schemas_1.likeUserValidation), match_controller_1.default.likeUser);
+router.post('/like/:targetUserId', verification_middleware_1.requireVerification, (0, validation_middleware_1.validate)(schemas_1.likeUserValidation), match_controller_1.default.likeUser);
 /**
  * @route   POST /api/v1/matches/pass/:targetUserId
  * @desc    Pass a user (swipe left)
@@ -54,6 +67,12 @@ router.get('/', (0, validation_middleware_1.validate)(schemas_1.paginationValida
  * @access  Private
  */
 router.get('/:matchId', match_controller_1.default.getMatchDetails);
+/**
+ * @route   POST /api/v1/matches/listing-inquiry
+ * @desc    Find or create a match for listing chat
+ * @access  Private
+ */
+router.post('/listing-inquiry', verification_middleware_1.requireVerification, match_controller_1.default.listingInquiry);
 /**
  * @route   DELETE /api/v1/matches/:matchId
  * @desc    Unmatch a user

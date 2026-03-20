@@ -9,6 +9,13 @@ const router = Router();
 router.use(authenticate);
 
 /**
+ * @route   GET /api/v1/discover/feed
+ * @desc    Aggregated discovery feed — single endpoint for the Discovery screen
+ * @access  Private
+ */
+router.get('/feed', discoveryController.getDiscoveryFeed);
+
+/**
  * @route   GET /api/v1/discover
  * @desc    Discover users with advanced filters
  * @access  Private

@@ -47,9 +47,14 @@ const matchSchema = new mongoose_1.Schema({
         ref: 'User',
         required: true,
     },
+    type: {
+        type: String,
+        enum: ['match', 'listing_inquiry'],
+        default: 'match',
+    },
     compatibilityScore: {
         type: Number,
-        required: true,
+        default: 0,
         min: 0,
         max: 100,
     },
@@ -82,13 +87,19 @@ const matchSchema = new mongoose_1.Schema({
         type: Number,
         default: 0,
     },
+    listingId: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'Property',
+    },
 }, {
     timestamps: true,
 });
 // Compound indexes
-matchSchema.index({ user1: 1, user2: 1 }, { unique: true });
+matchSchema.index({ user1: 1, user2: 1, type: 1 }, { unique: true });
 matchSchema.index({ user1: 1, status: 1 });
 matchSchema.index({ user2: 1, status: 1 });
 matchSchema.index({ matchedAt: -1 });
+// Messages screen: fetch active matches sorted by last message
+matchSchema.index({ status: 1, lastMessageAt: -1 });
 exports.Match = mongoose_1.default.model('Match', matchSchema);
 //# sourceMappingURL=Match.js.map

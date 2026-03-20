@@ -44,7 +44,7 @@ const gameSchema = new Schema<IGameDocument>(
     },
     maxPlayers: {
       type: Number,
-      default: 2,
+      default: 6,
       min: 1,
     },
     difficulty: {
@@ -105,6 +105,13 @@ export interface IGameSessionDocument extends Document {
   players: IGameSessionPlayer[];
   invitedBy?: mongoose.Types.ObjectId;
   invitedUser?: mongoose.Types.ObjectId;
+  invitations?: Array<{
+    user: mongoose.Types.ObjectId;
+    matchId: mongoose.Types.ObjectId;
+    status: 'pending' | 'accepted' | 'declined' | 'expired';
+    respondedAt?: Date;
+  }>;
+  mode?: 'duel' | 'multiplayer';
   winner?: mongoose.Types.ObjectId;
   startedAt?: Date;
   endedAt?: Date;
@@ -228,6 +235,17 @@ const gameSessionSchema = new Schema<IGameSessionDocument>(
       type: Schema.Types.ObjectId,
       ref: 'User',
     },
+    invitations: [{
+      user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+      matchId: { type: Schema.Types.ObjectId, ref: 'Match', required: true },
+      status: { type: String, enum: ['pending', 'accepted', 'declined', 'expired'], default: 'pending' },
+      respondedAt: Date,
+    }],
+    mode: {
+      type: String,
+      enum: ['duel', 'multiplayer'],
+      default: 'duel',
+    },
     winner: {
       type: Schema.Types.ObjectId,
       ref: 'User',
@@ -323,6 +341,7 @@ gameSessionSchema.index({ 'players.user': 1 });
 gameSessionSchema.index({ game: 1, status: 1 });
 gameSessionSchema.index({ match: 1, status: 1 });
 gameSessionSchema.index({ invitedUser: 1, status: 1 });
+gameSessionSchema.index({ 'invitations.user': 1, status: 1 });
 gameSessionSchema.index({ startedAt: -1 });
 
 export const Game = mongoose.model<IGameDocument>('Game', gameSchema);

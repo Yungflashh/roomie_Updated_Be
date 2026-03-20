@@ -1,10 +1,72 @@
-// src/controllers/discovery.controller.ts
+// src/controllers/discovery.controller.ts - WITH REDIS CACHING
 import { Response } from 'express';
 import { AuthRequest } from '../types';
 import discoveryService, { DiscoveryFilters } from '../services/discovery.service';
+import cacheService from '../services/cache.service';
+import pointsService from '../services/points.service';
+import crypto from 'crypto';
 import logger from '../utils/logger';
 
 class DiscoveryController {
+  /**
+   * Aggregated discovery feed — single endpoint for the Discovery screen
+   * Returns: users, filterOptions, pointsStats, pointsConfig
+   */
+  async getDiscoveryFeed(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId!;
+
+      const filters: DiscoveryFilters = {
+        page: req.query.page ? Number(req.query.page) : 1,
+        limit: req.query.limit ? Number(req.query.limit) : 20,
+        sortBy: (req.query.sortBy as any) || 'newest',
+        city: req.query.city as string,
+        state: req.query.state as string,
+      };
+
+      const filtersHash = crypto.createHash('md5')
+        .update(JSON.stringify(filters))
+        .digest('hex')
+        .slice(0, 12);
+
+      const [usersResult, filterOptions, pointsStats, pointsConfig] = await Promise.all([
+        // No cache — subscription/boost data must be fresh
+        discoveryService.discoverUsers(userId, filters),
+        cacheService.getOrSet(
+          'discovery:filter_options',
+          () => discoveryService.getFilterOptions(),
+          600
+        ),
+        cacheService.getOrSet(
+          cacheService.pointsStatsKey(userId),
+          () => pointsService.getUserPointStats(userId),
+          120
+        ),
+        cacheService.getOrSet(
+          cacheService.pointsConfigKey(),
+          () => pointsService.getConfig(),
+          600
+        ),
+      ]);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          ...usersResult,
+          filterOptions,
+          pointsStats,
+          pointsConfig,
+        },
+      });
+    } catch (error: any) {
+      logger.error('Discovery feed error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to fetch discovery feed',
+      });
+    }
+  }
+
   /**
    * Discover users with filters
    */
@@ -69,7 +131,17 @@ class DiscoveryController {
 
       logger.info(`User ${userId} discovering with filters:`, filters);
 
-      const result = await discoveryService.discoverUsers(userId, filters);
+      // Hash the filters to build a stable cache key
+      const filtersHash = crypto.createHash('md5')
+        .update(JSON.stringify(filters))
+        .digest('hex')
+        .slice(0, 12);
+
+      const result = await cacheService.getOrSet(
+        cacheService.discoveryKey(userId, filtersHash),
+        () => discoveryService.discoverUsers(userId, filters),
+        120
+      );
 
       res.status(200).json({
         success: true,
@@ -89,7 +161,12 @@ class DiscoveryController {
    */
   async getFilterOptions(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const options = await discoveryService.getFilterOptions();
+      // Filter options rarely change — cache for 10 minutes
+      const options = await cacheService.getOrSet(
+        'discovery:filter_options',
+        () => discoveryService.getFilterOptions(),
+        600
+      );
 
       res.status(200).json({
         success: true,

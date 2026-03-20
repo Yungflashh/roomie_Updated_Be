@@ -89,6 +89,10 @@ declare class RoommateGroupService {
         earnedPoints: number;
         rank: number;
     }[]>;
+    /**
+     * Delete/disband group (admin only)
+     */
+    deleteGroup(groupId: string, userId: string): Promise<void>;
 }
 declare const _default: RoommateGroupService;
 export default _default;

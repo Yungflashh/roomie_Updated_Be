@@ -4,8 +4,54 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const discovery_service_1 = __importDefault(require("../services/discovery.service"));
+const cache_service_1 = __importDefault(require("../services/cache.service"));
+const points_service_1 = __importDefault(require("../services/points.service"));
+const crypto_1 = __importDefault(require("crypto"));
 const logger_1 = __importDefault(require("../utils/logger"));
 class DiscoveryController {
+    /**
+     * Aggregated discovery feed — single endpoint for the Discovery screen
+     * Returns: users, filterOptions, pointsStats, pointsConfig
+     */
+    async getDiscoveryFeed(req, res) {
+        try {
+            const userId = req.user?.userId;
+            const filters = {
+                page: req.query.page ? Number(req.query.page) : 1,
+                limit: req.query.limit ? Number(req.query.limit) : 20,
+                sortBy: req.query.sortBy || 'newest',
+                city: req.query.city,
+                state: req.query.state,
+            };
+            const filtersHash = crypto_1.default.createHash('md5')
+                .update(JSON.stringify(filters))
+                .digest('hex')
+                .slice(0, 12);
+            const [usersResult, filterOptions, pointsStats, pointsConfig] = await Promise.all([
+                // No cache — subscription/boost data must be fresh
+                discovery_service_1.default.discoverUsers(userId, filters),
+                cache_service_1.default.getOrSet('discovery:filter_options', () => discovery_service_1.default.getFilterOptions(), 600),
+                cache_service_1.default.getOrSet(cache_service_1.default.pointsStatsKey(userId), () => points_service_1.default.getUserPointStats(userId), 120),
+                cache_service_1.default.getOrSet(cache_service_1.default.pointsConfigKey(), () => points_service_1.default.getConfig(), 600),
+            ]);
+            res.status(200).json({
+                success: true,
+                data: {
+                    ...usersResult,
+                    filterOptions,
+                    pointsStats,
+                    pointsConfig,
+                },
+            });
+        }
+        catch (error) {
+            logger_1.default.error('Discovery feed error:', error);
+            res.status(500).json({
+                success: false,
+                message: error.message || 'Failed to fetch discovery feed',
+            });
+        }
+    }
     /**
      * Discover users with filters
      */
@@ -58,7 +104,12 @@ class DiscoveryController {
                 ];
             }
             logger_1.default.info(`User ${userId} discovering with filters:`, filters);
-            const result = await discovery_service_1.default.discoverUsers(userId, filters);
+            // Hash the filters to build a stable cache key
+            const filtersHash = crypto_1.default.createHash('md5')
+                .update(JSON.stringify(filters))
+                .digest('hex')
+                .slice(0, 12);
+            const result = await cache_service_1.default.getOrSet(cache_service_1.default.discoveryKey(userId, filtersHash), () => discovery_service_1.default.discoverUsers(userId, filters), 120);
             res.status(200).json({
                 success: true,
                 data: result,
@@ -77,7 +128,8 @@ class DiscoveryController {
      */
     async getFilterOptions(req, res) {
         try {
-            const options = await discovery_service_1.default.getFilterOptions();
+            // Filter options rarely change — cache for 10 minutes
+            const options = await cache_service_1.default.getOrSet('discovery:filter_options', () => discovery_service_1.default.getFilterOptions(), 600);
             res.status(200).json({
                 success: true,
                 data: options,

@@ -17,6 +17,12 @@ export interface IPropertyDocument extends Document {
     };
     photos: string[];
     videos?: string[];
+    virtualTour?: {
+        enabled: boolean;
+        url?: string;
+        photos360?: string[];
+        floorPlanUrl?: string;
+    };
     amenities: string[];
     bedrooms: number;
     bathrooms: number;

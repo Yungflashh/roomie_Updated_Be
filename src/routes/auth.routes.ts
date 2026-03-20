@@ -72,7 +72,41 @@ router.delete('/account', authenticate, authController.deleteAccount);
 
 
 
-router.get('/streak', authenticate, authController.getStreak); // ✅ NEW ENDPOINT
+router.get('/streak', authenticate, authController.getStreak);
 
+/**
+ * @route   POST /api/v1/auth/send-verification
+ * @desc    Send email verification OTP
+ * @access  Private
+ */
+router.post('/send-verification', authenticate, authController.sendVerification);
+
+/**
+ * @route   POST /api/v1/auth/verify-email
+ * @desc    Verify email with OTP code
+ * @access  Private
+ */
+router.post('/verify-email', authenticate, authController.verifyEmail);
+
+/**
+ * @route   POST /api/v1/auth/forgot-password
+ * @desc    Request password reset code
+ * @access  Public
+ */
+router.post('/forgot-password', authController.forgotPassword);
+
+/**
+ * @route   POST /api/v1/auth/verify-reset-code
+ * @desc    Verify password reset OTP
+ * @access  Public
+ */
+router.post('/verify-reset-code', authController.verifyResetCode);
+
+/**
+ * @route   POST /api/v1/auth/reset-password
+ * @desc    Reset password with token
+ * @access  Public
+ */
+router.post('/reset-password', authController.resetPassword);
 
 export default router;

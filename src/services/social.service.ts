@@ -72,6 +72,17 @@ class SocialService {
       return [];
     }
 
+    // Prevent unlinking last social account
+    const connectedCount = user.socialLinks.filter((link: any) => link.connected).length;
+    if (connectedCount <= 1) {
+      throw new Error('Cannot unlink your last social media account. At least one is required for verification.');
+    }
+
+    // Prevent unlinking during pending verification
+    if ((user as any).metadata?.verificationStatus === 'pending') {
+      throw new Error('Cannot unlink social accounts while verification is under review.');
+    }
+
     user.socialLinks = user.socialLinks.filter(
       (link: any) => link.platform !== platform
     );

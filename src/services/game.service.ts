@@ -10,6 +10,7 @@ import {
   emitScoreUpdate,
   emitNewMessage,
 } from '../config/socket.config';
+import weeklyChallengeService from './weeklyChallenge.service';
 import logger from '../utils/logger';
 
 // ============================================
@@ -387,7 +388,7 @@ class GameService {
     if (user.gamification.level < game.levelRequired) {
       return {
         canPlay: false,
-        reason: `Requires Level ${game.levelRequired}. You are Level ${user.gamification.level}`,
+        reason: `Requires Level ${game.levelRequired} (you're Level ${user.gamification.level})`,
         requiredLevel: game.levelRequired,
         userLevel: user.gamification.level,
       };
@@ -398,7 +399,7 @@ class GameService {
     if (user.gamification.points < pointsCost) {
       return {
         canPlay: false,
-        reason: `Requires ${pointsCost} points. You have ${user.gamification.points}`,
+        reason: `Needs ${pointsCost} points to stake (you have ${user.gamification.points}). Loser loses 70% to the winner!`,
         requiredPoints: pointsCost,
         userPoints: user.gamification.points,
       };
@@ -427,7 +428,15 @@ class GameService {
 
     const invitedCheck = await this.canUserPlayGame(invitedUserId, gameId);
     if (!invitedCheck.canPlay) {
-      throw new Error(`Invited user: ${invitedCheck.reason || 'cannot play this game'}`);
+      const invitedUser = await User.findById(invitedUserId).select('firstName');
+      const name = invitedUser?.firstName || 'The invited user';
+      if (invitedCheck.requiredLevel) {
+        throw new Error(`${name} needs to be Level ${invitedCheck.requiredLevel} to play this game (currently Level ${invitedCheck.userLevel})`);
+      }
+      if (invitedCheck.requiredPoints) {
+        throw new Error(`${name} doesn't have enough points for this game (needs ${invitedCheck.requiredPoints}, has ${invitedCheck.userPoints})`);
+      }
+      throw new Error(`${name} can't play this game right now`);
     }
 
     const match = await Match.findById(matchId);
@@ -515,6 +524,121 @@ class GameService {
     return session;
   }
 
+  async sendMultiplayerInvitation(
+    gameId: string,
+    inviterId: string,
+    invitees: Array<{ userId: string; matchId: string }>
+  ): Promise<IGameSessionDocument> {
+    const game = await this.getGameById(gameId);
+
+    if (invitees.length + 1 > game.maxPlayers) {
+      throw new Error(`Maximum ${game.maxPlayers} players allowed (including you)`);
+    }
+
+    const inviterCheck = await this.canUserPlayGame(inviterId, gameId);
+    if (!inviterCheck.canPlay) {
+      throw new Error(inviterCheck.reason || 'Cannot play this game');
+    }
+
+    // Validate each invitee
+    for (const inv of invitees) {
+      const invitedCheck = await this.canUserPlayGame(inv.userId, gameId);
+      if (!invitedCheck.canPlay) {
+        const invUser = await User.findById(inv.userId).select('firstName');
+        throw new Error(`${invUser?.firstName || 'Invited user'}: ${invitedCheck.reason || 'cannot play this game'}`);
+      }
+
+      const match = await Match.findById(inv.matchId);
+      if (!match) {
+        throw new Error('Match not found');
+      }
+      const matchUsers = [match.user1.toString(), match.user2.toString()];
+      if (!matchUsers.includes(inviterId) || !matchUsers.includes(inv.userId)) {
+        throw new Error('Users are not part of this match');
+      }
+    }
+
+    // Check for existing pending multiplayer session from same inviter
+    const existingSession = await GameSession.findOne({
+      game: gameId,
+      invitedBy: inviterId,
+      mode: 'multiplayer',
+      status: 'pending',
+    });
+    if (existingSession) {
+      throw new Error('You already have a pending multiplayer game invitation');
+    }
+
+    const pointsCost = await pointsService.calculateGameCost(inviterId, gameId);
+    const gameData = this.generateGameData(game.name);
+
+    const sessionDoc = new GameSession({
+      game: new mongoose.Types.ObjectId(gameId),
+      mode: 'multiplayer',
+      players: [{
+        user: new mongoose.Types.ObjectId(inviterId),
+        score: 0,
+        rank: 0,
+        isReady: false,
+      }],
+      invitedBy: new mongoose.Types.ObjectId(inviterId),
+      invitations: invitees.map(inv => ({
+        user: new mongoose.Types.ObjectId(inv.userId),
+        matchId: new mongoose.Types.ObjectId(inv.matchId),
+        status: 'pending',
+      })),
+      status: 'pending',
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 min for multiplayer
+      pointsCost,
+      gameData,
+    });
+
+    const session = await sessionDoc.save();
+
+    await session.populate([
+      { path: 'game', select: 'name description thumbnail category difficulty pointsReward pointsCost levelRequired' },
+      { path: 'invitedBy', select: 'firstName lastName profilePhoto' },
+    ]);
+
+    const inviter = await User.findById(inviterId).select('firstName lastName profilePhoto');
+
+    // Send invite message to each invitee via their match chat
+    for (const inv of invitees) {
+      const inviteMessage = await Message.create({
+        match: inv.matchId,
+        sender: inviterId,
+        receiver: inv.userId,
+        type: 'game_invite',
+        content: `🎮 Invited you to play ${game.name} with ${invitees.length} others!`,
+        gameData: {
+          sessionId: session._id,
+          gameId: game._id,
+          gameName: game.name,
+          gameThumbnail: game.thumbnail,
+          status: 'pending',
+        },
+      });
+
+      await inviteMessage.populate('sender', 'firstName lastName profilePhoto');
+
+      emitGameInvitation(inv.userId, {
+        sessionId: session._id,
+        game: session.game,
+        invitedBy: inviter,
+        matchId: inv.matchId,
+        expiresAt: session.expiresAt,
+        pointsCost,
+        mode: 'multiplayer',
+        totalInvited: invitees.length,
+      });
+
+      emitNewMessage(inv.matchId, inviteMessage.toObject(), inviterId, inv.userId);
+    }
+
+    logger.info(`Multiplayer game invitation sent: ${session._id}, ${invitees.length} invitees`);
+    return session;
+  }
+
   async respondToInvitation(
     sessionId: string,
     userId: string,
@@ -528,10 +652,6 @@ class GameService {
       throw new Error('Game session not found');
     }
 
-    if (session.invitedUser?.toString() !== userId) {
-      throw new Error('You are not invited to this game');
-    }
-
     if (session.status !== 'pending') {
       throw new Error('Invitation is no longer valid');
     }
@@ -542,55 +662,147 @@ class GameService {
       throw new Error('Invitation has expired');
     }
 
-    if (accept) {
-      session.players.push({
-        user: new mongoose.Types.ObjectId(userId),
-        score: 0,
-        rank: 0,
-        isReady: false,
-      } as any);
-      session.status = 'waiting';
-      await session.save();
+    const isMultiplayer = session.mode === 'multiplayer';
 
+    if (isMultiplayer) {
+      // Multiplayer path: check invitations array
+      const invitation = session.invitations?.find(
+        inv => inv.user.toString() === userId
+      );
+      if (!invitation) {
+        throw new Error('You are not invited to this game');
+      }
+      if (invitation.status !== 'pending') {
+        throw new Error('You have already responded to this invitation');
+      }
+
+      if (accept) {
+        invitation.status = 'accepted';
+        invitation.respondedAt = new Date();
+        session.players.push({
+          user: new mongoose.Types.ObjectId(userId),
+          score: 0,
+          rank: 0,
+          isReady: false,
+        } as any);
+
+        // Check if all invitations are responded to
+        const allResponded = session.invitations!.every(inv => inv.status !== 'pending');
+        const acceptedCount = session.invitations!.filter(inv => inv.status === 'accepted').length;
+        const game = session.game as any;
+        const minPlayers = game.minPlayers || 2;
+
+        if (allResponded && acceptedCount + 1 >= minPlayers) {
+          session.status = 'waiting';
+        } else if (allResponded && acceptedCount + 1 < minPlayers) {
+          session.status = 'cancelled';
+        }
+
+        await session.save();
+
+        // Update message for this invitee's match chat
+        const inv = session.invitations!.find(i => i.user.toString() === userId);
+        if (inv) {
+          await Message.updateMany(
+            { 'gameData.sessionId': sessionId, match: inv.matchId },
+            { 'gameData.status': session.status === 'waiting' ? 'accepted' : 'accepted' }
+          );
+        }
+      } else {
+        invitation.status = 'declined';
+        invitation.respondedAt = new Date();
+
+        const allResponded = session.invitations!.every(inv => inv.status !== 'pending');
+        const acceptedCount = session.invitations!.filter(inv => inv.status === 'accepted').length;
+        const game = session.game as any;
+        const minPlayers = game.minPlayers || 2;
+
+        if (allResponded && acceptedCount + 1 < minPlayers) {
+          session.status = 'cancelled';
+        }
+
+        await session.save();
+
+        const inv = session.invitations!.find(i => i.user.toString() === userId);
+        if (inv) {
+          await Message.updateMany(
+            { 'gameData.sessionId': sessionId, match: inv.matchId },
+            { 'gameData.status': 'declined' }
+          );
+        }
+      }
+
+      // Notify host
       if (session.invitedBy) {
         const invitedByObj = session.invitedBy as any;
         const invitedById = invitedByObj._id ? invitedByObj._id.toString() : invitedByObj.toString();
-        
         emitGameInvitationResponse(invitedById, {
           sessionId: session._id,
-          accepted: true,
+          accepted: accept,
           userId,
           game: session.game,
+          mode: 'multiplayer',
+          acceptedCount: session.invitations!.filter(inv => inv.status === 'accepted').length,
+          totalInvited: session.invitations!.length,
+          sessionStatus: session.status,
         });
       }
 
-      await Message.updateMany(
-        { 'gameData.sessionId': sessionId },
-        { 'gameData.status': 'accepted' }
-      );
-
-      logger.info(`Game invitation accepted: ${sessionId}`);
+      logger.info(`Multiplayer invitation ${accept ? 'accepted' : 'declined'}: ${sessionId} by ${userId}`);
     } else {
-      session.status = 'declined';
-      await session.save();
-
-      if (session.invitedBy) {
-        const invitedByObj = session.invitedBy as any;
-        const invitedById = invitedByObj._id ? invitedByObj._id.toString() : invitedByObj.toString();
-        
-        emitGameInvitationResponse(invitedById, {
-          sessionId: session._id,
-          accepted: false,
-          userId,
-        });
+      // Legacy duel path
+      if (session.invitedUser?.toString() !== userId) {
+        throw new Error('You are not invited to this game');
       }
 
-      await Message.updateMany(
-        { 'gameData.sessionId': sessionId },
-        { 'gameData.status': 'declined' }
-      );
+      if (accept) {
+        session.players.push({
+          user: new mongoose.Types.ObjectId(userId),
+          score: 0,
+          rank: 0,
+          isReady: false,
+        } as any);
+        session.status = 'waiting';
+        await session.save();
 
-      logger.info(`Game invitation declined: ${sessionId}`);
+        if (session.invitedBy) {
+          const invitedByObj = session.invitedBy as any;
+          const invitedById = invitedByObj._id ? invitedByObj._id.toString() : invitedByObj.toString();
+          emitGameInvitationResponse(invitedById, {
+            sessionId: session._id,
+            accepted: true,
+            userId,
+            game: session.game,
+          });
+        }
+
+        await Message.updateMany(
+          { 'gameData.sessionId': sessionId },
+          { 'gameData.status': 'accepted' }
+        );
+
+        logger.info(`Game invitation accepted: ${sessionId}`);
+      } else {
+        session.status = 'declined';
+        await session.save();
+
+        if (session.invitedBy) {
+          const invitedByObj = session.invitedBy as any;
+          const invitedById = invitedByObj._id ? invitedByObj._id.toString() : invitedByObj.toString();
+          emitGameInvitationResponse(invitedById, {
+            sessionId: session._id,
+            accepted: false,
+            userId,
+          });
+        }
+
+        await Message.updateMany(
+          { 'gameData.sessionId': sessionId },
+          { 'gameData.status': 'declined' }
+        );
+
+        logger.info(`Game invitation declined: ${sessionId}`);
+      }
     }
 
     return session;
@@ -1160,55 +1372,73 @@ class GameService {
     });
 
     const winner = sortedPlayers[0];
-    
-    if (winner && winner.score > 0) {
+    const stake = session.pointsCost || game.pointsCost || 0;
+
+    if (winner && winner.score > 0 && sortedPlayers.length >= 2) {
       const winnerUserId = (winner.user as any)._id || winner.user;
       session.winner = winnerUserId;
-      
-      const pointsReward = game.pointsReward;
-      if (pointsReward > 0) {
-        const pointsResult = await pointsService.addPoints({
-          userId: winnerUserId.toString(),
-          amount: pointsReward,
-          type: 'game_reward',
-          reason: `Won ${game.name}!`,
-          metadata: {
-            gameId: game._id,
-            gameName: game.name,
-            sessionId: session._id,
-            score: winner.score,
-            rank: 1,
-          },
-        });
 
-        winner.pointsEarned = pointsReward;
-        session.pointsAwarded = pointsReward;
-        
-        logger.info(`Awarded ${pointsReward} points to winner. Level up: ${pointsResult.leveledUp}`);
-      }
-    }
-
-    const consolationPoints = Math.floor((game.pointsReward || 0) * 0.5);
-    if (consolationPoints > 0) {
+      // Losers lose 70% of stake to winner
+      let totalWinnings = 0;
       for (let i = 1; i < sortedPlayers.length; i++) {
-        const player = sortedPlayers[i];
-        const playerId = (player.user as any)._id || player.user;
-        
-        await pointsService.addPoints({
-          userId: playerId.toString(),
-          amount: consolationPoints,
-          type: 'game_reward',
-          reason: `Participated in ${game.name}`,
-          metadata: {
-            gameId: game._id,
-            gameName: game.name,
-            sessionId: session._id,
-            score: player.score,
-            rank: player.rank,
-          },
-        });
-        
-        player.pointsEarned = consolationPoints;
+        const loser = sortedPlayers[i];
+        const loserId = (loser.user as any)._id || loser.user;
+        const lossAmount = Math.floor(stake * 0.7);
+
+        if (lossAmount > 0) {
+          try {
+            await pointsService.deductPoints({
+              userId: loserId.toString(),
+              amount: lossAmount,
+              type: 'penalty',
+              reason: `Lost ${game.name} — ${lossAmount} pts to winner`,
+              metadata: {
+                gameId: game._id,
+                sessionId: session._id,
+                score: loser.score,
+                rank: i + 1,
+              },
+            });
+            loser.pointsEarned = -lossAmount;
+            totalWinnings += lossAmount;
+          } catch (e) {
+            logger.warn(`Failed to deduct points from loser ${loserId}:`, e);
+          }
+        }
+      }
+
+      // Winner receives all collected losers' points
+      if (totalWinnings > 0) {
+        try {
+          const pointsResult = await pointsService.addPoints({
+            userId: winnerUserId.toString(),
+            amount: totalWinnings,
+            type: 'game_reward',
+            reason: `Won ${game.name}! Earned ${totalWinnings} pts from opponents`,
+            metadata: {
+              gameId: game._id,
+              gameName: game.name,
+              sessionId: session._id,
+              score: winner.score,
+              rank: 1,
+            },
+          });
+
+          winner.pointsEarned = totalWinnings;
+          session.pointsAwarded = totalWinnings;
+          logger.info(`Winner earned ${totalWinnings} pts from ${sortedPlayers.length - 1} losers. Level up: ${pointsResult.leveledUp}`);
+
+          // Track challenge progress for game win
+          try { await weeklyChallengeService.trackAction(winnerUserId.toString(), 'game_win'); } catch (e) { logger.warn('Challenge tracking (game_win) error:', e); }
+        } catch (e) {
+          logger.warn('Failed to award winner points:', e);
+        }
+      }
+    } else if (sortedPlayers.length >= 2) {
+      // Tie or all scored 0 — no points change
+      logger.info('Game ended in tie or zero scores — no points transferred');
+      for (const p of sortedPlayers) {
+        p.pointsEarned = 0;
       }
     }
 
@@ -1264,7 +1494,10 @@ class GameService {
 
   async getActiveGameSession(matchId: string): Promise<IGameSessionDocument | null> {
     const session = await GameSession.findOne({
-      match: matchId,
+      $or: [
+        { match: matchId },
+        { 'invitations.matchId': new mongoose.Types.ObjectId(matchId) },
+      ],
       status: { $in: ['pending', 'waiting', 'active'] },
     })
       .populate('game')

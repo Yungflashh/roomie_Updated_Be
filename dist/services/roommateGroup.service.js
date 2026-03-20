@@ -457,6 +457,30 @@ class RoommateGroupService {
             rank: index + 1,
         }));
     }
+    /**
+     * Delete/disband group (admin only)
+     */
+    async deleteGroup(groupId, userId) {
+        const group = await RoommateGroup_1.RoommateGroup.findById(groupId);
+        if (!group)
+            throw new Error('Group not found');
+        const member = group.members.find((m) => m.user.toString() === userId && m.status === 'active');
+        if (!member || member.role !== 'admin') {
+            throw new Error('Only admins can delete the group');
+        }
+        // Clean up related data
+        await Promise.all([
+            UserPoints_1.UserPoints.deleteMany({ group: groupId }),
+            GroupInvite_1.GroupInvite.deleteMany({ group: groupId }),
+        ]);
+        // Notify members before deletion
+        const io = (0, socket_config_1.getIO)();
+        if (io) {
+            io.to(`group:${groupId}`).emit('group:deleted', { groupId, groupName: group.name });
+        }
+        await RoommateGroup_1.RoommateGroup.findByIdAndDelete(groupId);
+        logger_1.default.info(`Group ${groupId} deleted by ${userId}`);
+    }
 }
 exports.default = new RoommateGroupService();
 //# sourceMappingURL=roommateGroup.service.js.map

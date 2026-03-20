@@ -77,6 +77,7 @@ const initializeSocket = (server) => {
                 matchId: data.matchId,
                 userId,
                 user: socket.data.user,
+                activity: data.activity || 'typing',
             });
         });
         socket.on('typing:stop', (data) => {

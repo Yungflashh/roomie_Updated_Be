@@ -77,4 +77,26 @@ router.get('/username/search', pointsController.searchByUsername);
  */
 router.post('/gift', pointsController.giftPoints);
 
+/**
+ * @route   POST /api/v1/points/purchase
+ * @desc    Request to purchase points (pending admin approval)
+ * @access  Private
+ * @body    { packageId: string, amount: number, pointsAmount: number, label?: string }
+ */
+router.post('/purchase', pointsController.requestPurchase);
+
+/**
+ * @route   POST /api/v1/points/verify-payment
+ * @desc    Verify Paystack payment after checkout
+ * @access  Private
+ */
+router.post('/verify-payment', pointsController.verifyPayment);
+
+/**
+ * @route   GET /api/v1/points/purchases
+ * @desc    Get user's purchase history
+ * @access  Private
+ */
+router.get('/purchases', pointsController.getPurchaseHistory);
+
 export default router;

@@ -143,6 +143,10 @@ messageSchema.index({ match: 1, createdAt: -1 });
 messageSchema.index({ sender: 1, receiver: 1 });
 messageSchema.index({ 'gameData.sessionId': 1 });
 
+// Unread count & message list queries
+messageSchema.index({ receiver: 1, read: 1, deleted: 1 });
+messageSchema.index({ match: 1, deleted: 1, createdAt: -1 });
+
 // Virtual for id
 messageSchema.virtual('id').get(function () {
   return this._id.toHexString();

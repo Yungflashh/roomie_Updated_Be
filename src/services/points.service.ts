@@ -154,6 +154,14 @@ class PointsService {
 
       logger.info(`Added ${amount} points to user ${userId}. New balance: ${newPoints}`);
 
+      // Track challenge progress for points earned (lazy import to avoid circular dependency)
+      if (type !== 'level_up' && type !== 'achievement') {
+        try {
+          const wcs = (await import('./weeklyChallenge.service')).default;
+          await wcs.trackAction(userId, 'points_earned', amount);
+        } catch (e) { logger.warn('Challenge tracking (points_earned) error:', e); }
+      }
+
       // Award level up bonus if leveled up
       if (leveledUp) {
         const levelUpBonus = Math.floor(newLevel * 10); // 10 points per new level
@@ -313,11 +321,10 @@ class PointsService {
         return { awarded: false };
       }
 
-      // Calculate bonus (premium users get extra)
-      let bonus = config.dailyLoginBonus;
-      if (user.subscription.plan === 'premium' || user.subscription.plan === 'pro') {
-        bonus += config.premiumDailyBonus;
-      }
+      // Calculate bonus with premium multiplier
+      const premiumService = require('./premium.service').default;
+      const limits = premiumService.getLimits(user);
+      let bonus = config.dailyLoginBonus * limits.dailyBonusMultiplier;
 
       // Update streak
       const yesterday = new Date();

@@ -3,7 +3,7 @@ declare class ChallengeService {
     /**
      * Get active challenges
      */
-    getActiveChallenges(type?: 'daily' | 'weekly' | 'monthly'): Promise<IChallengeDocument[]>;
+    getActiveChallenges(type?: 'daily' | 'weekly' | 'monthly', userId?: string): Promise<any[]>;
     /**
      * Get challenge by ID
      */
@@ -20,6 +20,10 @@ declare class ChallengeService {
      * Get user challenges
      */
     getUserChallenges(userId: string): Promise<IChallengeDocument[]>;
+    /**
+     * Get global leaderboard (top users by gamification points)
+     */
+    getGlobalLeaderboard(limit?: number, type?: string): Promise<any[]>;
     /**
      * Get challenge leaderboard
      */

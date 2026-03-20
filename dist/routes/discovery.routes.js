@@ -11,6 +11,12 @@ const router = (0, express_1.Router)();
 // All routes require authentication
 router.use(auth_middleware_1.authenticate);
 /**
+ * @route   GET /api/v1/discover/feed
+ * @desc    Aggregated discovery feed — single endpoint for the Discovery screen
+ * @access  Private
+ */
+router.get('/feed', discovery_controller_1.default.getDiscoveryFeed);
+/**
  * @route   GET /api/v1/discover
  * @desc    Discover users with advanced filters
  * @access  Private

@@ -18,12 +18,12 @@ class DiscoveryService {
         if (!currentUser) {
             throw new Error('User not found');
         }
-        // Build exclusion list (self, blocked, already interacted)
+        // Build exclusion list (self, blocked, already liked)
+        // Note: passes are NOT excluded — skipped users can reappear
         const excludeIds = [
             currentUserId,
             ...currentUser.blockedUsers.map(id => id.toString()),
             ...currentUser.likes.map(id => id.toString()),
-            ...currentUser.passes.map(id => id.toString()),
         ];
         // Build query
         const query = {
@@ -150,7 +150,7 @@ class DiscoveryService {
             User_1.User.find(query)
                 .select('firstName lastName profilePhoto photos bio occupation ' +
                 'location preferences lifestyle interests verified gender ' +
-                'dateOfBirth createdAt lastActive')
+                'dateOfBirth createdAt lastActive subscription metadata')
                 .sort(sortOptions)
                 .skip(skip)
                 .limit(limit)
@@ -176,9 +176,9 @@ class DiscoveryService {
                 lifestyle: user.lifestyle,
                 interests: user.interests || [],
                 verified: user.verified,
+                subscription: user.subscription,
                 gender: user.gender,
                 age,
-                // createdAt: user.createdAt,
             };
         });
         return {
@@ -240,7 +240,7 @@ class DiscoveryService {
                 { interests: { $in: [new RegExp(keyword, 'i')] } },
             ],
         })
-            .select('firstName lastName profilePhoto bio occupation location verified')
+            .select('firstName lastName profilePhoto bio occupation location verified subscription')
             .limit(limit)
             .lean();
         return users.map(user => ({
@@ -253,6 +253,7 @@ class DiscoveryService {
             occupation: user.occupation,
             location: user.location,
             verified: user.verified,
+            subscription: user.subscription,
         }));
     }
 }

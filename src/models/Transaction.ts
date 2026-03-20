@@ -101,7 +101,7 @@ const notificationSchema = new Schema<INotificationDocument>(
     },
     type: {
       type: String,
-      enum: ['match', 'message', 'like', 'request', 'request_accepted', 'listing_like', 'listing_view', 'challenge', 'achievement', 'system', 'reminder', 'location_nearby'],
+      enum: ['match', 'message', 'like', 'request', 'request_accepted', 'listing_like', 'listing_view', 'profile_view', 'challenge', 'achievement', 'system', 'reminder', 'location_nearby'],
       required: true,
       index: true,
     },

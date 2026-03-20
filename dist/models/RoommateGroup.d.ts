@@ -23,6 +23,11 @@ export interface IRoommateGroup {
         currency: string;
     };
     isActive: boolean;
+    features: {
+        locationSharing: boolean;
+        emergencyAlerts: boolean;
+        personalityBoard: boolean;
+    };
     createdAt: Date;
     updatedAt: Date;
 }

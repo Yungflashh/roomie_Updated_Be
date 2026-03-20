@@ -7,8 +7,10 @@ class ChallengeController {
   async getActiveChallenges(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { type } = req.query;
+      const userId = req.user?.userId;
       const challenges = await challengeService.getActiveChallenges(
-        type as 'daily' | 'weekly' | 'monthly'
+        type as 'daily' | 'weekly' | 'monthly',
+        userId
       );
 
       res.status(200).json({
@@ -105,6 +107,27 @@ class ChallengeController {
       res.status(500).json({
         success: false,
         message: 'Failed to fetch user challenges',
+      });
+    }
+  }
+
+  async getGlobalLeaderboard(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { limit = 10, type } = req.query;
+      const leaderboard = await challengeService.getGlobalLeaderboard(
+        parseInt(limit as string),
+        type as string | undefined
+      );
+
+      res.status(200).json({
+        success: true,
+        data: leaderboard,
+      });
+    } catch (error) {
+      logger.error('Get global leaderboard error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch leaderboard',
       });
     }
   }

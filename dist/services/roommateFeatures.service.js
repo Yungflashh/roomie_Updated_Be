@@ -10,6 +10,7 @@ const Chore_1 = require("../models/Chore");
 const RoommateGroup_1 = require("../models/RoommateGroup");
 const UserPoints_1 = require("../models/UserPoints");
 const socket_config_1 = require("../config/socket.config");
+const weeklyChallenge_service_1 = __importDefault(require("./weeklyChallenge.service"));
 const logger_1 = __importDefault(require("../utils/logger"));
 // Constants for points system
 const POINTS_CONFIG = {
@@ -360,6 +361,13 @@ class RoommateFeaturesServiceV2 {
             assignment.notes = notes;
         }
         await chore.save();
+        // Track challenge progress
+        try {
+            await weeklyChallenge_service_1.default.trackAction(userId, 'chore_complete');
+        }
+        catch (e) {
+            logger_1.default.warn('Challenge tracking (chore_complete) error:', e);
+        }
         const io = (0, socket_config_1.getIO)();
         if (io) {
             io.to(`group:${chore.group}`).emit('chore:awaitingVerification', {

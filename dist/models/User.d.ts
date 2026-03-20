@@ -22,6 +22,13 @@ export interface IUserDocument extends Document {
     photos: string[];
     bio?: string;
     occupation?: string;
+    zodiacSign?: 'aries' | 'taurus' | 'gemini' | 'cancer' | 'leo' | 'virgo' | 'libra' | 'scorpio' | 'sagittarius' | 'capricorn' | 'aquarius' | 'pisces';
+    personalityType?: 'intj' | 'intp' | 'entj' | 'entp' | 'infj' | 'infp' | 'enfj' | 'enfp' | 'istj' | 'isfj' | 'estj' | 'esfj' | 'istp' | 'isfp' | 'estp' | 'esfp';
+    emergencyContacts: Array<{
+        name: string;
+        phone: string;
+        relationship: string;
+    }>;
     pointsUsername?: string;
     location: {
         type: 'Point';
@@ -66,6 +73,10 @@ export interface IUserDocument extends Document {
     providerId?: string;
     fcmToken?: string;
     refreshToken?: string;
+    emailVerificationCode?: string;
+    emailVerificationExpires?: Date;
+    passwordResetCode?: string;
+    passwordResetExpires?: Date;
     subscription: {
         plan: 'free' | 'premium' | 'pro';
         startDate?: Date;
@@ -84,8 +95,51 @@ export interface IUserDocument extends Document {
     passes: string[];
     blockedUsers: string[];
     reportedBy: string[];
+    lastRewind?: mongoose.Types.ObjectId;
+    metadata?: {
+        dailySwipeCount?: number;
+        lastSwipeDate?: string;
+        lastBoostAt?: Date;
+        profileVisitors?: Array<{
+            userId: mongoose.Types.ObjectId;
+            visitedAt: Date;
+        }>;
+        monthlyInquiryCount?: number;
+        lastInquiryMonth?: string;
+        lastSwipeAction?: 'like' | 'pass' | null;
+        lastSwipedUserId?: string | null;
+        verificationRequested?: boolean;
+        verificationRequestedAt?: Date;
+        verificationStatus?: 'none' | 'pending' | 'approved' | 'rejected';
+        verificationRejectionReason?: string;
+        kycDocuments?: {
+            documentType?: string;
+            idFrontPhoto?: string;
+            idBackPhoto?: string;
+            selfiePhoto?: string;
+            submittedAt?: Date;
+        };
+    };
     isActive: boolean;
     lastSeen?: Date;
+    notificationSettings: {
+        pushEnabled: boolean;
+        messages: boolean;
+        matches: boolean;
+        gameInvitations: boolean;
+        dailyBonus: boolean;
+        roommateActivity: boolean;
+        inAppNotifications: boolean;
+        inAppSound: boolean;
+        inAppVibration: boolean;
+    };
+    privacySettings: {
+        showOnlineStatus: boolean;
+        showLastSeen: boolean;
+        profileVisibility: 'everyone' | 'matches_only';
+        readReceipts: boolean;
+        shareLocationWithRoommates: boolean;
+    };
     isProfileComplete: boolean;
     profileCompletionPercentage: number;
     missingProfileFields: string[];

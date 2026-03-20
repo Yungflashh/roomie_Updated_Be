@@ -1,8 +1,10 @@
 // src/services/auth.service.ts - UPDATED TO USE EXISTING POINTS SERVICE
+import crypto from 'crypto';
 import { User, IUserDocument } from '../models';
 import { generateTokenPair } from '../utils/jwt';
 import logger from '../utils/logger';
 import pointsService from './points.service';
+import emailService from './email.service';
 
 interface RegisterData {
   email: string;
@@ -45,6 +47,11 @@ interface UserResponse {
   profileCompletionPercentage: number;
   missingProfileFields: string[];
   age?: number;
+  metadata?: {
+    verificationStatus?: string;
+    verificationRejectionReason?: string;
+    verificationRequested?: boolean;
+  };
 }
 
 interface AuthResponse {
@@ -95,6 +102,11 @@ class AuthService {
       profileCompletionPercentage: profileCompletion.percentage,
       missingProfileFields: profileCompletion.missingFields,
       age: user.age,
+      metadata: {
+        verificationStatus: (user as any).metadata?.verificationStatus || 'none',
+        verificationRejectionReason: (user as any).metadata?.verificationRejectionReason,
+        verificationRequested: (user as any).metadata?.verificationRequested,
+      },
     };
   }
 
@@ -153,6 +165,19 @@ class AuthService {
     user.refreshToken = refreshToken;
     user.lastSeen = new Date();
     await user.save();
+
+    // Send verification email in background
+    try {
+      const code = this.generateOTP();
+      user.emailVerificationCode = code;
+      user.emailVerificationExpires = new Date(Date.now() + 15 * 60 * 1000);
+      await user.save();
+      emailService.sendVerificationCode(email, firstName, code).catch(err => {
+        logger.error('Failed to send verification email:', err);
+      });
+    } catch (err) {
+      logger.error('Failed to set verification code:', err);
+    }
 
     logger.info(`New user registered: ${email}`);
 
@@ -381,6 +406,133 @@ class AuthService {
       currentStreak: user.gamification?.streak || 0,
       lastLoginDate: user.gamification?.lastActiveDate || user.lastSeen || null,
     };
+  }
+
+  /**
+   * Generate a 6-digit OTP code
+   */
+  private generateOTP(): string {
+    return crypto.randomInt(100000, 999999).toString();
+  }
+
+  /**
+   * Send email verification code
+   */
+  async sendVerificationEmail(userId: string): Promise<void> {
+    const user = await User.findById(userId).select('+emailVerificationCode +emailVerificationExpires');
+    if (!user) throw new Error('User not found');
+    if (user.emailVerified) throw new Error('Email already verified');
+
+    const code = this.generateOTP();
+    user.emailVerificationCode = code;
+    user.emailVerificationExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+    await user.save();
+
+    await emailService.sendVerificationCode(user.email, user.firstName, code);
+    logger.info(`Verification email sent to: ${user.email}`);
+  }
+
+  /**
+   * Verify email with OTP code
+   */
+  async verifyEmail(userId: string, code: string): Promise<void> {
+    const user = await User.findById(userId).select('+emailVerificationCode +emailVerificationExpires');
+    if (!user) throw new Error('User not found');
+    if (user.emailVerified) throw new Error('Email already verified');
+
+    if (
+      !user.emailVerificationCode ||
+      !user.emailVerificationExpires ||
+      user.emailVerificationCode !== code
+    ) {
+      throw new Error('Invalid verification code');
+    }
+
+    if (user.emailVerificationExpires < new Date()) {
+      throw new Error('Verification code has expired');
+    }
+
+    user.emailVerified = true;
+    user.emailVerificationCode = undefined;
+    user.emailVerificationExpires = undefined;
+    await user.save();
+
+    logger.info(`Email verified for: ${user.email}`);
+  }
+
+  /**
+   * Request password reset — sends OTP to email
+   */
+  async forgotPassword(email: string): Promise<void> {
+    const user = await User.findOne({ email: email.toLowerCase() }).select('+passwordResetCode +passwordResetExpires');
+    if (!user) {
+      // Don't reveal whether user exists
+      return;
+    }
+
+    const code = this.generateOTP();
+    user.passwordResetCode = code;
+    user.passwordResetExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 min
+    await user.save();
+
+    await emailService.sendPasswordResetCode(user.email, user.firstName, code);
+    logger.info(`Password reset code sent to: ${user.email}`);
+  }
+
+  /**
+   * Verify password reset code
+   */
+  async verifyResetCode(email: string, code: string): Promise<string> {
+    const user = await User.findOne({ email: email.toLowerCase() }).select('+passwordResetCode +passwordResetExpires');
+    if (!user) throw new Error('Invalid reset code');
+
+    if (
+      !user.passwordResetCode ||
+      !user.passwordResetExpires ||
+      user.passwordResetCode !== code
+    ) {
+      throw new Error('Invalid reset code');
+    }
+
+    if (user.passwordResetExpires < new Date()) {
+      throw new Error('Reset code has expired');
+    }
+
+    // Generate a temporary reset token for the next step
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    user.passwordResetCode = resetToken; // Reuse field to store the temp token
+    user.passwordResetExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+    await user.save();
+
+    return resetToken;
+  }
+
+  /**
+   * Reset password using the temp reset token
+   */
+  async resetPassword(email: string, resetToken: string, newPassword: string): Promise<void> {
+    const user = await User.findOne({ email: email.toLowerCase() }).select('+passwordResetCode +passwordResetExpires +password');
+    if (!user) throw new Error('Invalid request');
+
+    if (
+      !user.passwordResetCode ||
+      !user.passwordResetExpires ||
+      user.passwordResetCode !== resetToken
+    ) {
+      throw new Error('Invalid or expired reset token');
+    }
+
+    if (user.passwordResetExpires < new Date()) {
+      throw new Error('Reset token has expired');
+    }
+
+    user.password = newPassword;
+    user.passwordResetCode = undefined;
+    user.passwordResetExpires = undefined;
+    await user.save();
+
+    await emailService.sendPasswordResetSuccess(user.email, user.firstName);
+    logger.info(`Password reset for: ${user.email}`);
   }
 }
 

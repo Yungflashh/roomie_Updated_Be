@@ -1,9 +1,21 @@
 import { Response } from 'express';
+import bcrypt from 'bcryptjs';
 import { AuthRequest } from '../types';
 import userService from '../services/user.service';
 import {User} from "../models/User"
 import logger from '../utils/logger';
+import { logAudit } from '../utils/audit';
+import weeklyChallengeService from '../services/weeklyChallenge.service';
 import fs from 'fs';
+
+// Helper to get user actor info for audit logs
+async function getActorInfo(userId: string): Promise<{ id: string; name: string; email: string }> {
+  try {
+    const u = await User.findById(userId).select('firstName lastName email');
+    if (u) return { id: userId, name: `${u.firstName} ${u.lastName}`, email: u.email };
+  } catch {}
+  return { id: userId, name: '', email: '' };
+}
 
 class UserController {
   // src/controllers/user.controller.ts
@@ -15,10 +27,46 @@ class UserController {
     try {
       const { userId } = req.params;
       const currentUserId = req.user?.userId;
-      
+
       logger.info(`Getting profile for user: ${userId}`);
-      
+
       const user = await userService.getUserById(userId, currentUserId);
+
+      logger.info(`Profile data for ${userId}: subscription=${JSON.stringify(user?.subscription)}, verified=${user?.verified}`);
+
+      // Record profile visit & notify (in background, don't block response)
+      if (currentUserId && currentUserId !== userId) {
+        (async () => {
+          try {
+            const premiumService = require('../services/premium.service').default;
+            const isNewVisit = await premiumService.recordProfileVisit(currentUserId, userId);
+
+            // Only notify if this is a new visit (not within last 3 days)
+            if (isNewVisit) {
+              const { emitToUser } = require('../config/socket.config');
+              emitToUser(userId, 'notification', {
+                type: 'profile_view',
+                title: 'Profile Viewed',
+                message: 'Someone viewed your profile',
+                data: { viewerId: currentUserId },
+              });
+
+              const { Notification } = require('../models');
+              await Notification.create({
+                user: userId,
+                type: 'profile_view',
+                title: 'Profile Viewed',
+                body: 'Someone viewed your profile',
+                data: { viewerId: currentUserId },
+              }).catch((err: any) => {
+                logger.error('Profile view notification error:', err.message);
+              });
+            }
+          } catch (err) {
+            // Silent — don't let visit tracking break profile fetch
+          }
+        })();
+      }
 
       res.status(200).json({
         success: true,
@@ -41,8 +89,9 @@ async getMyProfile(req: AuthRequest, res: Response): Promise<void> {
   try {
     const userId = req.user?.userId!;
     
-    const user = await User.findById(userId);
-    
+    const user = await User.findById(userId)
+      .populate('blockedUsers', 'firstName lastName profilePhoto');
+
     if (!user) {
       res.status(404).json({
         success: false,
@@ -126,6 +175,12 @@ async getProfileCompletion(req: AuthRequest, res: Response): Promise<void> {
       
       const user = await userService.updateUser(userId, req.body);
 
+      await logAudit({
+        actor: await getActorInfo(userId),
+        actorType: 'user', action: 'update_profile', category: 'profile',
+        details: 'Updated profile', req
+      });
+
       res.status(200).json({
         success: true,
         message: 'Profile updated successfully',
@@ -146,6 +201,15 @@ async getProfileCompletion(req: AuthRequest, res: Response): Promise<void> {
       logger.info(`Updating profile for user: ${userId}`);
       
       const user = await userService.updateProfile(userId, req.body);
+
+      await logAudit({
+        actor: await getActorInfo(userId),
+        actorType: 'user', action: 'update_profile', category: 'profile',
+        details: 'Updated profile', req
+      });
+
+      // Track challenge progress
+      weeklyChallengeService.trackAction(userId, 'profile_update').catch(e => logger.warn('Challenge tracking (profile_update) error:', e));
 
       res.status(200).json({
         success: true,
@@ -168,6 +232,12 @@ async getProfileCompletion(req: AuthRequest, res: Response): Promise<void> {
       
       const preferences = await userService.updatePreferences(userId, req.body);
 
+      await logAudit({
+        actor: await getActorInfo(userId),
+        actorType: 'user', action: 'update_preferences', category: 'profile',
+        details: 'Updated preferences', req
+      });
+
       res.status(200).json({
         success: true,
         message: 'Preferences updated successfully',
@@ -188,6 +258,12 @@ async getProfileCompletion(req: AuthRequest, res: Response): Promise<void> {
       logger.info(`Updating lifestyle for user: ${userId}`);
       
       const lifestyle = await userService.updateLifestyle(userId, req.body);
+
+      await logAudit({
+        actor: await getActorInfo(userId),
+        actorType: 'user', action: 'update_lifestyle', category: 'profile',
+        details: 'Updated lifestyle', req
+      });
 
       res.status(200).json({
         success: true,
@@ -219,6 +295,12 @@ async getProfileCompletion(req: AuthRequest, res: Response): Promise<void> {
         state,
         country
       );
+
+      await logAudit({
+        actor: await getActorInfo(userId),
+        actorType: 'user', action: 'update_location', category: 'profile',
+        details: 'Updated location', req
+      });
 
       res.status(200).json({
         success: true,
@@ -253,6 +335,12 @@ async getProfileCompletion(req: AuthRequest, res: Response): Promise<void> {
     });
 
     logger.info(`Profile photo uploaded for user ${userId}: ${cloudinaryResult.url}`);
+
+    await logAudit({
+      actor: await getActorInfo(userId),
+      actorType: 'user', action: 'upload_profile_photo', category: 'profile',
+      details: 'Uploaded profile photo', req
+    });
 
     res.status(200).json({
       success: true,
@@ -306,10 +394,19 @@ async addPhoto(req: AuthRequest, res: Response): Promise<void> {
 
     logger.info(`Photo added for user ${userId}: ${cloudinaryResult.url}`);
 
+    await logAudit({
+      actor: await getActorInfo(userId),
+      actorType: 'user', action: 'add_photo', category: 'profile',
+      details: 'Added photo to gallery', req
+    });
+
+    // Track challenge progress
+    weeklyChallengeService.trackAction(userId, 'photo_upload').catch(e => logger.warn('Challenge tracking (photo_upload) error:', e));
+
     res.status(200).json({
       success: true,
       message: 'Photo added successfully',
-      data: { 
+      data: {
         photoUrl: cloudinaryResult.url,
         publicId: cloudinaryResult.publicId,
       },
@@ -332,6 +429,12 @@ async addPhoto(req: AuthRequest, res: Response): Promise<void> {
       
       await userService.removePhoto(userId, photoUrl);
 
+      await logAudit({
+        actor: await getActorInfo(userId),
+        actorType: 'user', action: 'remove_photo', category: 'profile',
+        details: 'Removed photo', req
+      });
+
       res.status(200).json({
         success: true,
         message: 'Photo removed successfully',
@@ -353,6 +456,14 @@ async addPhoto(req: AuthRequest, res: Response): Promise<void> {
       logger.info(`User ${userId} blocking user ${targetUserId}`);
       
       await userService.blockUser(userId, targetUserId);
+
+      const targetInfo = await getActorInfo(targetUserId);
+      await logAudit({
+        actor: await getActorInfo(userId),
+        actorType: 'user', action: 'block_user', category: 'user_interaction',
+        target: { type: 'user', id: targetUserId, name: targetInfo.name },
+        details: `Blocked user ${targetInfo.name} (${targetInfo.email})`, req
+      });
 
       res.status(200).json({
         success: true,
@@ -377,6 +488,14 @@ async addPhoto(req: AuthRequest, res: Response): Promise<void> {
       
       await userService.unblockUser(userId, targetUserId);
 
+      const targetInfo = await getActorInfo(targetUserId);
+      await logAudit({
+        actor: await getActorInfo(userId),
+        actorType: 'user', action: 'unblock_user', category: 'user_interaction',
+        target: { type: 'user', id: targetUserId, name: targetInfo.name },
+        details: `Unblocked user ${targetInfo.name} (${targetInfo.email})`, req
+      });
+
       res.status(200).json({
         success: true,
         message: 'User unblocked successfully',
@@ -400,6 +519,15 @@ async addPhoto(req: AuthRequest, res: Response): Promise<void> {
       
       await userService.reportUser(userId, targetUserId, reason);
 
+      const targetInfo = await getActorInfo(targetUserId);
+      await logAudit({
+        actor: await getActorInfo(userId),
+        actorType: 'user', action: 'report_user', category: 'user_interaction',
+        target: { type: 'user', id: targetUserId, name: targetInfo.name },
+        details: `Reported user ${targetInfo.name} (${targetInfo.email}). Reason: ${reason}`, req,
+        metadata: { reason, reportedUser: { name: targetInfo.name, email: targetInfo.email } }
+      });
+
       res.status(200).json({
         success: true,
         message: 'User reported successfully',
@@ -421,6 +549,12 @@ async addPhoto(req: AuthRequest, res: Response): Promise<void> {
       logger.info(`Adding interests for user: ${userId}`);
       
       const updatedInterests = await userService.addInterests(userId, interests);
+
+      await logAudit({
+        actor: await getActorInfo(userId),
+        actorType: 'user', action: 'add_interests', category: 'profile',
+        details: 'Added interests', req
+      });
 
       res.status(200).json({
         success: true,
@@ -445,6 +579,12 @@ async addPhoto(req: AuthRequest, res: Response): Promise<void> {
       
       const updatedInterests = await userService.removeInterest(userId, interest);
 
+      await logAudit({
+        actor: await getActorInfo(userId),
+        actorType: 'user', action: 'remove_interest', category: 'profile',
+        details: `Removed interest: ${interest}`, req
+      });
+
       res.status(200).json({
         success: true,
         message: 'Interest removed successfully',
@@ -456,6 +596,92 @@ async addPhoto(req: AuthRequest, res: Response): Promise<void> {
         success: false,
         message: error.message || 'Failed to remove interest',
       });
+    }
+  }
+
+  async getNotificationSettings(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId!;
+      const user = await User.findById(userId).select('notificationSettings');
+      res.json({ success: true, data: user?.notificationSettings || {} });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  async updateNotificationSettings(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId!;
+      const user = await User.findByIdAndUpdate(
+        userId,
+        { $set: { notificationSettings: req.body } },
+        { new: true }
+      ).select('notificationSettings');
+      res.json({ success: true, data: user?.notificationSettings });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  async getPrivacySettings(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId!;
+      const user = await User.findById(userId).select('privacySettings');
+      res.json({ success: true, data: user?.privacySettings || {} });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  async updatePrivacySettings(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId!;
+      const user = await User.findByIdAndUpdate(
+        userId,
+        { $set: { privacySettings: req.body } },
+        { new: true }
+      ).select('privacySettings');
+      res.json({ success: true, data: user?.privacySettings });
+    } catch (error: any) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  async deleteAccount(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId!;
+      const { password } = req.body;
+
+      if (!password) {
+        res.status(400).json({ success: false, message: 'Password is required' });
+        return;
+      }
+
+      const user = await User.findById(userId).select('+password');
+      if (!user) {
+        res.status(404).json({ success: false, message: 'User not found' });
+        return;
+      }
+
+      const isMatch = await bcrypt.compare(password, user.password as string);
+      if (!isMatch) {
+        res.status(401).json({ success: false, message: 'Incorrect password' });
+        return;
+      }
+
+      // Soft delete: deactivate the account
+      user.isActive = false;
+      await user.save();
+
+      logger.info(`Account deletion requested by user ${userId}`);
+
+      res.json({
+        success: true,
+        message: 'Account has been deactivated. It will be permanently deleted in 30 days.',
+      });
+    } catch (error: any) {
+      logger.error('Delete account error:', error);
+      res.status(500).json({ success: false, message: error.message || 'Failed to delete account' });
     }
   }
 }

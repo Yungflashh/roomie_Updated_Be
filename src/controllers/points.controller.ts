@@ -1,9 +1,12 @@
-// src/controllers/points.controller.ts - COMPLETE FILE WITH USERNAME SUPPORT
+// src/controllers/points.controller.ts - WITH REDIS CACHING + USERNAME SUPPORT
 import { Response } from 'express';
 import { AuthRequest } from '../types';
 import pointsService from '../services/points.service';
+import paystackService from '../services/paystack.service';
+import cacheService from '../services/cache.service';
 import { User } from '../models/User';
 import logger from '../utils/logger';
+import { logAudit } from '../utils/audit';
 
 class PointsController {
   /**
@@ -13,7 +16,11 @@ class PointsController {
   async getPointsStats(req: AuthRequest, res: Response): Promise<void> {
     try {
       const userId = req.user?.userId!;
-      const stats = await pointsService.getUserPointStats(userId);
+      const stats = await cacheService.getOrSet(
+        cacheService.pointsStatsKey(userId),
+        () => pointsService.getUserPointStats(userId),
+        120
+      );
 
       res.status(200).json({
         success: true,
@@ -67,6 +74,15 @@ class PointsController {
       const result = await pointsService.awardDailyLoginBonus(userId);
 
       if (result.awarded) {
+        // Bust points cache after earning bonus
+        await cacheService.onPointsChange(userId);
+
+        await logAudit({
+          actor: { id: userId, name: '', email: '' },
+          actorType: 'user', action: 'claim_daily_bonus', category: 'points',
+          details: 'Claimed daily login bonus', req
+        });
+
         res.status(200).json({
           success: true,
           message: 'Daily bonus claimed!',
@@ -93,7 +109,12 @@ class PointsController {
    */
   async getPointsConfig(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const config = await pointsService.getConfig();
+      // Points config is global and rarely changes — cache for 10 minutes
+      const config = await cacheService.getOrSet(
+        cacheService.pointsConfigKey(),
+        () => pointsService.getConfig(),
+        600
+      );
 
       res.status(200).json({
         success: true,
@@ -245,6 +266,12 @@ class PointsController {
       }
 
       logger.info(`User ${userId} set points username to: ${cleanUsername}`);
+
+      await logAudit({
+        actor: { id: userId, name: '', email: '' },
+        actorType: 'user', action: 'set_points_username', category: 'points',
+        details: `Set points username to ${cleanUsername}`, req
+      });
 
       res.status(200).json({
         success: true,
@@ -529,6 +556,18 @@ class PointsController {
 
       logger.info(`User ${userId} gifted ${amount} points to ${recipient._id} (@${cleanUsername})`);
 
+      await logAudit({
+        actor: { id: userId, name: '', email: '' },
+        actorType: 'user', action: 'gift_points', category: 'points',
+        target: { type: 'user', id: recipient._id.toString(), name: cleanUsername },
+        details: `Gifted ${amount} points to ${cleanUsername}`, req,
+        metadata: { amount, recipientUsername: cleanUsername, message }
+      });
+
+      // Bust points cache for both sender and recipient
+      await cacheService.onPointsChange(userId);
+      await cacheService.onPointsChange(recipient._id.toString());
+
       res.status(200).json({
         success: true,
         message: `Successfully gifted ${amount} points to @${cleanUsername}!`,
@@ -549,6 +588,178 @@ class PointsController {
       res.status(500).json({
         success: false,
         message: error.message || 'Failed to gift points',
+      });
+    }
+  }
+  /**
+   * Request to purchase points (pending admin approval)
+   * POST /api/v1/points/purchase
+   * Body: { packageId: string, amount: number, pointsAmount: number }
+   */
+  async requestPurchase(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId!;
+      const { packageId, amount, pointsAmount, label } = req.body;
+
+      if (!packageId || !amount || !pointsAmount) {
+        res.status(400).json({ success: false, message: 'Package ID, amount, and points amount are required' });
+        return;
+      }
+
+      const user = await User.findById(userId).select('firstName lastName email');
+      if (!user) {
+        res.status(404).json({ success: false, message: 'User not found' });
+        return;
+      }
+
+      const { Transaction } = require('../models');
+      const reference = `pts_${userId}_${Date.now()}`;
+
+      // Create pending transaction
+      const transaction = await Transaction.create({
+        user: userId,
+        type: 'coins',
+        amount,
+        currency: 'NGN',
+        status: 'pending',
+        provider: 'paystack',
+        providerReference: reference,
+        description: `Purchase ${pointsAmount} points (${label || packageId})`,
+        metadata: {
+          packageId,
+          pointsAmount,
+          label: label || `${pointsAmount} Points`,
+          userName: `${user.firstName} ${user.lastName}`,
+        },
+      });
+
+      // Initialize Paystack payment
+      const paystack = await paystackService.initializeTransaction({
+        email: user.email,
+        amount: amount * 100, // Convert NGN to kobo
+        reference,
+        metadata: {
+          userId,
+          transactionId: transaction._id.toString(),
+          pointsAmount,
+          packageId,
+        },
+      });
+
+      logger.info(`Paystack payment initialized: ${reference} — ₦${amount} for ${pointsAmount} pts`);
+
+      res.status(201).json({
+        success: true,
+        message: 'Payment initialized',
+        data: {
+          transactionId: transaction._id,
+          reference,
+          status: 'pending',
+          pointsAmount,
+          amount,
+          authorization_url: paystack.authorization_url,
+          access_code: paystack.access_code,
+        },
+      });
+    } catch (error: any) {
+      logger.error('Request purchase error:', error);
+      res.status(500).json({ success: false, message: error.message || 'Failed to initialize payment' });
+    }
+  }
+
+  /**
+   * Verify Paystack payment after user completes checkout
+   * POST /api/v1/points/verify-payment
+   */
+  async verifyPayment(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { reference } = req.body;
+      if (!reference) {
+        res.status(400).json({ success: false, message: 'Reference is required' });
+        return;
+      }
+
+      const { Transaction } = require('../models');
+      const transaction = await Transaction.findOne({ providerReference: reference });
+      if (!transaction) {
+        res.status(404).json({ success: false, message: 'Transaction not found' });
+        return;
+      }
+
+      // Already completed
+      if (transaction.status === 'completed') {
+        res.json({ success: true, message: 'Payment already verified', data: { status: 'completed', pointsAmount: transaction.metadata?.pointsAmount } });
+        return;
+      }
+
+      // Verify with Paystack
+      const paystack = await paystackService.verifyTransaction(reference);
+
+      if (paystack.status === 'success') {
+        // Credit points
+        const pointsAmount = transaction.metadata?.pointsAmount || 0;
+        transaction.status = 'completed';
+        transaction.providerMetadata = paystack;
+        await transaction.save();
+
+        // Add points to user
+        await User.findByIdAndUpdate(transaction.user, {
+          $inc: { 'gamification.points': pointsAmount },
+        });
+
+        // Bust cache
+        await cacheService.invalidatePattern(`points:stats:${transaction.user}*`);
+
+        logger.info(`Payment verified & points credited: ${reference} — ${pointsAmount} pts`);
+
+        res.json({
+          success: true,
+          message: `${pointsAmount} points added to your account!`,
+          data: { status: 'completed', pointsAmount },
+        });
+      } else {
+        transaction.status = 'failed';
+        transaction.providerMetadata = paystack;
+        await transaction.save();
+
+        res.json({
+          success: false,
+          message: 'Payment was not successful',
+          data: { status: 'failed' },
+        });
+      }
+    } catch (error: any) {
+      logger.error('Verify payment error:', error);
+      res.status(500).json({ success: false, message: error.message || 'Payment verification failed' });
+    }
+  }
+
+  /**
+   * Get user's purchase history
+   * GET /api/v1/points/purchases
+   */
+  async getPurchaseHistory(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId!;
+      const { Transaction } = require('../models');
+
+      const purchases = await Transaction.find({
+        user: userId,
+        type: 'coins',
+      })
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean();
+
+      res.status(200).json({
+        success: true,
+        data: { purchases },
+      });
+    } catch (error: any) {
+      logger.error('Get purchase history error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to fetch purchase history',
       });
     }
   }

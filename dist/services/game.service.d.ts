@@ -18,6 +18,10 @@ declare class GameService {
         userPoints?: number;
     }>;
     sendGameInvitation(gameId: string, inviterId: string, invitedUserId: string, matchId: string): Promise<IGameSessionDocument>;
+    sendMultiplayerInvitation(gameId: string, inviterId: string, invitees: Array<{
+        userId: string;
+        matchId: string;
+    }>): Promise<IGameSessionDocument>;
     respondToInvitation(sessionId: string, userId: string, accept: boolean): Promise<IGameSessionDocument>;
     startGameSession(sessionId: string, userId: string): Promise<IGameSessionDocument>;
     submitAnswer(sessionId: string, userId: string, questionIndex: number, answer: string, timeSpent: number): Promise<{

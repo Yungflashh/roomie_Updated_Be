@@ -48,6 +48,22 @@ declare class PointsController {
      * Body: { username: string, amount: number, message: string }
      */
     giftPoints(req: AuthRequest, res: Response): Promise<void>;
+    /**
+     * Request to purchase points (pending admin approval)
+     * POST /api/v1/points/purchase
+     * Body: { packageId: string, amount: number, pointsAmount: number }
+     */
+    requestPurchase(req: AuthRequest, res: Response): Promise<void>;
+    /**
+     * Verify Paystack payment after user completes checkout
+     * POST /api/v1/points/verify-payment
+     */
+    verifyPayment(req: AuthRequest, res: Response): Promise<void>;
+    /**
+     * Get user's purchase history
+     * GET /api/v1/points/purchases
+     */
+    getPurchaseHistory(req: AuthRequest, res: Response): Promise<void>;
 }
 declare const _default: PointsController;
 export default _default;

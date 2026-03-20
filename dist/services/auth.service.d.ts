@@ -37,6 +37,11 @@ interface UserResponse {
     profileCompletionPercentage: number;
     missingProfileFields: string[];
     age?: number;
+    metadata?: {
+        verificationStatus?: string;
+        verificationRejectionReason?: string;
+        verificationRequested?: boolean;
+    };
 }
 interface AuthResponse {
     user: UserResponse;
@@ -113,6 +118,30 @@ declare class AuthService {
         currentStreak: number;
         lastLoginDate: Date | null;
     }>;
+    /**
+     * Generate a 6-digit OTP code
+     */
+    private generateOTP;
+    /**
+     * Send email verification code
+     */
+    sendVerificationEmail(userId: string): Promise<void>;
+    /**
+     * Verify email with OTP code
+     */
+    verifyEmail(userId: string, code: string): Promise<void>;
+    /**
+     * Request password reset — sends OTP to email
+     */
+    forgotPassword(email: string): Promise<void>;
+    /**
+     * Verify password reset code
+     */
+    verifyResetCode(email: string, code: string): Promise<string>;
+    /**
+     * Reset password using the temp reset token
+     */
+    resetPassword(email: string, resetToken: string, newPassword: string): Promise<void>;
 }
 declare const _default: AuthService;
 export default _default;

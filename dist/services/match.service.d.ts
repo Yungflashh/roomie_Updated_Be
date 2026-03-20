@@ -1,3 +1,4 @@
+import { IMatchDocument } from '../models';
 interface PotentialMatch {
     user: any;
     compatibilityScore: number;
@@ -7,7 +8,8 @@ declare class MatchService {
     /**
      * Get potential matches
      */
-    getPotentialMatches(userId: string, limit?: number, minCompatibility?: number, sortBy?: 'compatibility' | 'distance'): Promise<PotentialMatch[]>;
+    getPotentialMatches(userId: string, limit?: number, minCompatibility?: number, sortBy?: 'compatibility' | 'distance', liveCoords?: [number, number], // [longitude, latitude] from device GPS
+    maxDistance?: number): Promise<PotentialMatch[]>;
     /**
      * Calculate distance between two coordinates using Haversine formula
      * @param coords1 - [longitude, latitude]
@@ -41,13 +43,15 @@ declare class MatchService {
         pointsDeducted?: number;
     }>;
     /**
-     * Pass a user
+     * Pass a user — soft skip, does NOT permanently exclude them.
+     * The user will reappear in future discover queries.
+     * Only used for declining/cancelling explicit match requests.
      */
     passUser(userId: string, targetUserId: string): Promise<void>;
     /**
      * Get user's matches with last message info
      */
-    getMatches(userId: string, page?: number, limit?: number): Promise<{
+    getMatches(userId: string, page?: number, limit?: number, excludeListingInquiries?: boolean): Promise<{
         matches: any[];
         pagination: any;
     }>;
@@ -63,6 +67,14 @@ declare class MatchService {
      * Get users who liked current user
      */
     getLikes(userId: string): Promise<any[]>;
+    /**
+     * Find or create a conversation for listing inquiry — not a match, just a chat channel
+     */
+    findOrCreateListingInquiry(userId: string, landlordId: string, listingId?: string): Promise<IMatchDocument>;
+    /**
+     * Calculate user priority for discovery sorting (boosted > premium > free)
+     */
+    private getUserPriority;
     /**
      * Get matched user IDs helper
      */

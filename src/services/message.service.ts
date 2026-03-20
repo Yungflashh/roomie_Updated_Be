@@ -1,7 +1,8 @@
 // src/services/message.service.ts
 import { Message, Match, IMessageDocument } from '../models';
-import { emitNewMessage, emitUnreadUpdate } from '../config/socket.config';
+import { emitNewMessage, emitUnreadUpdate, emitToUser } from '../config/socket.config';
 import notificationService from './notification.service';
+import weeklyChallengeService from './weeklyChallenge.service';
 import logger from '../utils/logger';
 import fs from 'fs';
 
@@ -13,6 +14,7 @@ interface SendMessageData {
   content?: string;
   mediaUrl?: string;
   thumbnail?: string;
+  replyTo?: string;
   metadata?: {
     duration?: number;
     fileSize?: number;
@@ -25,7 +27,7 @@ class MessageService {
    * Send a message
    */
   async sendMessage(data: SendMessageData): Promise<IMessageDocument> {
-    const { matchId, senderId, receiverId, type, content, mediaUrl, thumbnail, metadata } = data;
+    const { matchId, senderId, receiverId, type, content, mediaUrl, thumbnail, metadata, replyTo } = data;
 
     // Verify match exists and user is part of it
     const match = await Match.findOne({
@@ -50,14 +52,22 @@ class MessageService {
       content,
       mediaUrl,
       thumbnail,
+      replyTo: replyTo || undefined,
       duration: metadata?.duration,
       fileSize: metadata?.fileSize,
       fileName: metadata?.fileName,
       read: false,
     });
 
-    // Populate sender info
+    // Populate sender info and reply message
     await message.populate('sender', 'firstName lastName profilePhoto');
+    if (replyTo) {
+      await message.populate({
+        path: 'replyTo',
+        select: 'content type sender mediaUrl',
+        populate: { path: 'sender', select: 'firstName lastName' },
+      });
+    }
 
     // Update match last message time and unread count
     const isUser1 = match.user1.toString() === senderId;
@@ -90,6 +100,9 @@ class MessageService {
 
     logger.info(`Message sent: ${senderId} -> ${receiverId}`);
 
+    // Track challenge progress
+    try { await weeklyChallengeService.trackAction(senderId, 'message'); } catch (e) { logger.warn('Challenge tracking (message) error:', e); }
+
     return message;
   }
 
@@ -119,15 +132,22 @@ class MessageService {
     const messages = await Message.find({
       match: matchId,
       deleted: false,
+      deletedFor: { $ne: userId },
     })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
-      .populate('sender receiver', 'firstName lastName profilePhoto');
+      .populate('sender receiver', 'firstName lastName profilePhoto')
+      .populate({
+        path: 'replyTo',
+        select: 'content type sender mediaUrl',
+        populate: { path: 'sender', select: 'firstName lastName' },
+      });
 
     const total = await Message.countDocuments({
       match: matchId,
       deleted: false,
+      deletedFor: { $ne: userId },
     });
 
     return {
@@ -171,6 +191,28 @@ class MessageService {
   }
 
   /**
+   * Clear all messages in a match for the requesting user (soft delete)
+   */
+  async clearChat(matchId: string, userId: string): Promise<number> {
+    const match = await Match.findOne({
+      _id: matchId,
+      $or: [{ user1: userId }, { user2: userId }],
+    });
+
+    if (!match) {
+      throw new Error('Match not found');
+    }
+
+    const result = await Message.updateMany(
+      { match: matchId, deleted: false },
+      { $addToSet: { deletedFor: userId } }
+    );
+
+    logger.info(`Chat cleared for user ${userId} in match ${matchId}: ${result.modifiedCount} messages`);
+    return result.modifiedCount;
+  }
+
+  /**
    * Delete a message
    */
   async deleteMessage(messageId: string, userId: string): Promise<void> {
@@ -183,6 +225,9 @@ class MessageService {
       throw new Error('Message not found or unauthorized');
     }
 
+    const receiverId = message.receiver?.toString();
+    const matchId = message.match?.toString();
+
     message.deleted = true;
     await message.save();
 
@@ -191,6 +236,15 @@ class MessageService {
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
+    }
+
+    // Notify the receiver so the message is removed from their screen
+    if (receiverId) {
+      emitToUser(receiverId, 'message:deleted', {
+        messageId,
+        matchId,
+      });
+      logger.info(`Message:deleted emitted to receiver ${receiverId}`);
     }
 
     logger.info(`Message deleted: ${messageId}`);

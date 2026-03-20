@@ -13,7 +13,7 @@ class UserService {
         const user = await models_1.User.findById(userId)
             .select('firstName lastName email phoneNumber profilePhoto photos bio occupation ' +
             'gender dateOfBirth location preferences lifestyle interests languages ' +
-            'socialLinks verified emailVerified createdAt lastSeen')
+            'socialLinks verified emailVerified createdAt lastSeen subscription')
             .lean();
         if (!user) {
             throw new Error('User not found');
@@ -49,7 +49,8 @@ class UserService {
             socialLinks: user.socialLinks || [],
             verified: user.verified,
             emailVerified: user.emailVerified,
-            // createdAt: user.createdAt,
+            subscription: user.subscription,
+            createdAt: user.createdAt,
         };
     }
     /**

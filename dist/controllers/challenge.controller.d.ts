@@ -6,6 +6,7 @@ declare class ChallengeController {
     joinChallenge(req: AuthRequest, res: Response): Promise<void>;
     updateProgress(req: AuthRequest, res: Response): Promise<void>;
     getUserChallenges(req: AuthRequest, res: Response): Promise<void>;
+    getGlobalLeaderboard(req: AuthRequest, res: Response): Promise<void>;
     getChallengeLeaderboard(req: AuthRequest, res: Response): Promise<void>;
 }
 declare const _default: ChallengeController;

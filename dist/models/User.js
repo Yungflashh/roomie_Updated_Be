@@ -110,6 +110,19 @@ const userSchema = new mongoose_1.Schema({
     },
     bio: String,
     occupation: String,
+    zodiacSign: {
+        type: String,
+        enum: ['aries', 'taurus', 'gemini', 'cancer', 'leo', 'virgo', 'libra', 'scorpio', 'sagittarius', 'capricorn', 'aquarius', 'pisces'],
+    },
+    personalityType: {
+        type: String,
+        enum: ['intj', 'intp', 'entj', 'entp', 'infj', 'infp', 'enfj', 'enfp', 'istj', 'isfj', 'estj', 'esfj', 'istp', 'isfp', 'estp', 'esfp'],
+    },
+    emergencyContacts: [{
+            name: { type: String, required: true },
+            phone: { type: String, required: true },
+            relationship: { type: String, required: true },
+        }],
     // Points username - NEW FIELD
     pointsUsername: {
         type: String,
@@ -221,6 +234,22 @@ const userSchema = new mongoose_1.Schema({
         type: String,
         select: false,
     },
+    emailVerificationCode: {
+        type: String,
+        select: false,
+    },
+    emailVerificationExpires: {
+        type: Date,
+        select: false,
+    },
+    passwordResetCode: {
+        type: String,
+        select: false,
+    },
+    passwordResetExpires: {
+        type: Date,
+        select: false,
+    },
     subscription: {
         plan: {
             type: String,
@@ -273,11 +302,54 @@ const userSchema = new mongoose_1.Schema({
             type: mongoose_1.Schema.Types.ObjectId,
             ref: 'User',
         }],
+    lastRewind: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User' },
+    metadata: {
+        dailySwipeCount: { type: Number, default: 0 },
+        lastSwipeDate: String,
+        lastBoostAt: Date,
+        profileVisitors: [{
+                userId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User' },
+                visitedAt: { type: Date, default: Date.now },
+            }],
+        monthlyInquiryCount: { type: Number, default: 0 },
+        lastInquiryMonth: String,
+        lastSwipeAction: { type: String, enum: ['like', 'pass', null], default: null },
+        lastSwipedUserId: { type: String, default: null },
+        verificationRequested: { type: Boolean, default: false },
+        verificationRequestedAt: Date,
+        verificationStatus: { type: String, enum: ['none', 'pending', 'approved', 'rejected'], default: 'none' },
+        verificationRejectionReason: String,
+        kycDocuments: {
+            documentType: String,
+            idFrontPhoto: String,
+            idBackPhoto: String,
+            selfiePhoto: String,
+            submittedAt: Date,
+        },
+    },
     isActive: {
         type: Boolean,
         default: true,
     },
     lastSeen: Date,
+    notificationSettings: {
+        pushEnabled: { type: Boolean, default: true },
+        messages: { type: Boolean, default: true },
+        matches: { type: Boolean, default: true },
+        gameInvitations: { type: Boolean, default: true },
+        dailyBonus: { type: Boolean, default: true },
+        roommateActivity: { type: Boolean, default: true },
+        inAppNotifications: { type: Boolean, default: true },
+        inAppSound: { type: Boolean, default: true },
+        inAppVibration: { type: Boolean, default: true },
+    },
+    privacySettings: {
+        showOnlineStatus: { type: Boolean, default: true },
+        showLastSeen: { type: Boolean, default: true },
+        profileVisibility: { type: String, enum: ['everyone', 'matches_only'], default: 'everyone' },
+        readReceipts: { type: Boolean, default: true },
+        shareLocationWithRoommates: { type: Boolean, default: false },
+    },
 }, {
     timestamps: true,
     toJSON: {
@@ -468,10 +540,23 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
 // =====================
 userSchema.index({ 'location.coordinates': '2dsphere' });
 userSchema.index({ email: 1 });
-userSchema.index({ pointsUsername: 1 }); // NEW INDEX
+userSchema.index({ pointsUsername: 1 });
 userSchema.index({ isActive: 1 });
 userSchema.index({ 'subscription.plan': 1 });
 userSchema.index({ createdAt: -1 });
+// Discovery query indexes
+userSchema.index({ isActive: 1, gender: 1, verified: 1 });
+userSchema.index({ isActive: 1, 'location.city': 1, createdAt: -1 });
+userSchema.index({ gender: 1 });
+userSchema.index({ dateOfBirth: 1 });
+userSchema.index({ 'location.city': 1 });
+userSchema.index({ 'location.state': 1 });
+userSchema.index({ verified: 1 });
+userSchema.index({ interests: 1 });
+userSchema.index({ 'preferences.roomType': 1 });
+userSchema.index({ 'lifestyle.sleepSchedule': 1 });
+userSchema.index({ 'lifestyle.cleanliness': 1 });
+userSchema.index({ blockedUsers: 1 });
 // =====================
 // MIDDLEWARE
 // =====================

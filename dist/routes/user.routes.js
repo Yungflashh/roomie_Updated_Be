@@ -65,6 +65,20 @@ router.post('/profile-photo', (0, upload_middleware_1.setUploadType)('profiles')
  */
 router.post('/photos', (0, upload_middleware_1.setUploadType)('profiles'), upload_middleware_1.upload.single('photo'), upload_middleware_1.checkImageDuplicate, upload_middleware_1.uploadToCloudinary, user_controller_1.default.addPhoto);
 /**
+ * @route   POST /api/v1/users/upload-media
+ * @desc    Upload a media file (image/video) and return the URL. General purpose.
+ * @access  Private
+ */
+router.post('/upload-media', (0, upload_middleware_1.setUploadType)('media'), upload_middleware_1.upload.single('file'), upload_middleware_1.uploadToCloudinary, (req, res) => {
+    if (!req.cloudinaryResult) {
+        return res.status(400).json({ success: false, message: 'Upload failed' });
+    }
+    res.status(200).json({
+        success: true,
+        data: { url: req.cloudinaryResult.url },
+    });
+});
+/**
  * @route   DELETE /api/v1/users/photos
  * @desc    Remove photo from gallery
  * @access  Private
@@ -82,6 +96,20 @@ router.post('/interests', user_controller_1.default.addInterests);
  * @access  Private
  */
 router.delete('/interests', user_controller_1.default.removeInterest);
+// Get notification settings
+router.get('/settings/notifications', user_controller_1.default.getNotificationSettings);
+// Update notification settings
+router.put('/settings/notifications', user_controller_1.default.updateNotificationSettings);
+// Get privacy settings
+router.get('/settings/privacy', user_controller_1.default.getPrivacySettings);
+// Update privacy settings
+router.put('/settings/privacy', user_controller_1.default.updatePrivacySettings);
+/**
+ * @route   POST /api/v1/users/delete-account
+ * @desc    Delete user account (requires password confirmation)
+ * @access  Private
+ */
+router.post('/delete-account', user_controller_1.default.deleteAccount);
 /**
  * @route   POST /api/v1/users/block/:targetUserId
  * @desc    Block user
@@ -131,6 +159,59 @@ router.use((error, req, res, next) => {
         return;
     }
     next();
+});
+// Request verification with KYC documents
+router.post('/request-verification', auth_middleware_1.authenticate, async (req, res) => {
+    try {
+        const { User } = require('../models');
+        const user = await User.findById(req.user.userId);
+        if (!user) {
+            res.status(404).json({ success: false, message: 'User not found' });
+            return;
+        }
+        if (user.verified) {
+            res.status(400).json({ success: false, message: 'Already verified' });
+            return;
+        }
+        if (user.metadata?.verificationStatus === 'pending') {
+            res.status(400).json({ success: false, message: 'Verification request already pending' });
+            return;
+        }
+        // Check profile completion >= 80%
+        const completion = user.getProfileCompletion();
+        if (completion.percentage < 80) {
+            res.status(400).json({ success: false, message: `Profile must be at least 80% complete. Currently at ${completion.percentage}%.` });
+            return;
+        }
+        // Check at least 1 social link
+        const connectedSocials = (user.socialLinks || []).filter((l) => l.connected);
+        if (connectedSocials.length < 1) {
+            res.status(400).json({ success: false, message: 'At least one social media account must be linked.' });
+            return;
+        }
+        // Check KYC documents
+        const { documentType, idFrontPhoto, idBackPhoto } = req.body;
+        if (!documentType) {
+            res.status(400).json({ success: false, message: 'Please select a document type.' });
+            return;
+        }
+        if (!idFrontPhoto || !idBackPhoto) {
+            res.status(400).json({ success: false, message: 'Front and back photos of your document are required.' });
+            return;
+        }
+        await User.findByIdAndUpdate(req.user.userId, {
+            $set: {
+                'metadata.verificationRequested': true,
+                'metadata.verificationRequestedAt': new Date(),
+                'metadata.verificationStatus': 'pending',
+                'metadata.kycDocuments': { documentType, idFrontPhoto, idBackPhoto, submittedAt: new Date() },
+            },
+        });
+        res.json({ success: true, message: 'Verification request submitted! An admin will review your documents.' });
+    }
+    catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
 });
 exports.default = router;
 //# sourceMappingURL=user.routes.js.map

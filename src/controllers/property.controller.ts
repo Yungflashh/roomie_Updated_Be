@@ -2,7 +2,9 @@
 import { Response } from 'express';
 import { AuthRequest } from '../types';
 import propertyService from '../services/property.service';
+import weeklyChallengeService from '../services/weeklyChallenge.service';
 import logger from '../utils/logger';
+import { logAudit } from '../utils/audit';
 
 class PropertyController {
   async createProperty(req: AuthRequest, res: Response): Promise<void> {
@@ -43,6 +45,13 @@ class PropertyController {
 
       const property = await propertyService.createProperty(propertyData);
 
+      await logAudit({
+        actor: { id: landlordId, name: '', email: '' },
+        actorType: 'user', action: 'create_property', category: 'property',
+        target: { type: 'property', id: property._id.toString(), name: property.title },
+        details: `Listed property "${property.title}"`, req
+      });
+
       res.status(201).json({
         success: true,
         message: 'Property created successfully',
@@ -61,6 +70,12 @@ class PropertyController {
     try {
       const { propertyId } = req.params;
       const property = await propertyService.getPropertyById(propertyId);
+
+      // Track challenge progress for property view
+      const userId = req.user?.userId;
+      if (userId) {
+        weeklyChallengeService.trackAction(userId, 'property_view').catch(e => logger.warn('Challenge tracking (property_view) error:', e));
+      }
 
       res.status(200).json({
         success: true,
@@ -87,6 +102,13 @@ class PropertyController {
         req.body
       );
 
+      await logAudit({
+        actor: { id: landlordId, name: '', email: '' },
+        actorType: 'user', action: 'update_property', category: 'property',
+        target: { type: 'property', id: propertyId },
+        details: `Updated property ${propertyId}`, req
+      });
+
       res.status(200).json({
         success: true,
         message: 'Property updated successfully',
@@ -109,6 +131,13 @@ class PropertyController {
       const { propertyId } = req.params;
 
       await propertyService.deleteProperty(propertyId, landlordId);
+
+      await logAudit({
+        actor: { id: landlordId, name: '', email: '' },
+        actorType: 'user', action: 'delete_property', category: 'property',
+        target: { type: 'property', id: propertyId },
+        details: `Deleted property ${propertyId}`, req
+      });
 
       res.status(200).json({
         success: true,
@@ -173,6 +202,13 @@ class PropertyController {
 
       await propertyService.likeProperty(propertyId, userId);
 
+      await logAudit({
+        actor: { id: userId, name: '', email: '' },
+        actorType: 'user', action: 'like_property', category: 'property',
+        target: { type: 'property', id: propertyId },
+        details: `Liked property ${propertyId}`, req
+      });
+
       res.status(200).json({
         success: true,
         message: 'Property liked',
@@ -192,6 +228,13 @@ class PropertyController {
       const { propertyId } = req.params;
 
       await propertyService.unlikeProperty(propertyId, userId);
+
+      await logAudit({
+        actor: { id: userId, name: '', email: '' },
+        actorType: 'user', action: 'unlike_property', category: 'property',
+        target: { type: 'property', id: propertyId },
+        details: `Unliked property ${propertyId}`, req
+      });
 
       res.status(200).json({
         success: true,

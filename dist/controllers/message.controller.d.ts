@@ -6,6 +6,14 @@ declare class MessageController {
      */
     sendMessage(req: AuthRequest, res: Response): Promise<void>;
     /**
+     * Cancel a pending media upload (within the 4s window)
+     */
+    cancelPendingUpload(req: AuthRequest, res: Response): Promise<void>;
+    /**
+     * Clear chat (soft delete all messages for the requesting user)
+     */
+    clearChat(req: AuthRequest, res: Response): Promise<void>;
+    /**
      * Get messages
      */
     getMessages(req: AuthRequest, res: Response): Promise<void>;

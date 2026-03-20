@@ -331,6 +331,19 @@ class RoommateGroupController {
       });
     }
   };
+
+  deleteGroup = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user?.userId!;
+      const { groupId } = req.params;
+
+      await roommateGroupService.deleteGroup(groupId, userId);
+
+      res.status(200).json({ success: true, message: 'Group deleted' });
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message || 'Failed to delete group' });
+    }
+  };
 }
 
 export default new RoommateGroupController();

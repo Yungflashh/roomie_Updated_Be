@@ -102,6 +102,12 @@ const propertySchema = new mongoose_1.Schema({
         type: [String],
         default: [],
     },
+    virtualTour: {
+        enabled: { type: Boolean, default: false },
+        url: String,
+        photos360: [String],
+        floorPlanUrl: String,
+    },
     amenities: {
         type: [String],
         default: [],
@@ -149,7 +155,7 @@ const propertySchema = new mongoose_1.Schema({
     status: {
         type: String,
         enum: ['available', 'rented', 'pending', 'inactive'],
-        default: 'available',
+        default: 'pending',
         index: true,
     },
     views: {
@@ -173,5 +179,15 @@ propertySchema.index({ landlord: 1 });
 propertySchema.index({ status: 1 });
 propertySchema.index({ price: 1 });
 propertySchema.index({ createdAt: -1 });
+// Property search filter indexes
+propertySchema.index({ status: 1, price: 1, createdAt: -1 });
+propertySchema.index({ status: 1, type: 1 });
+propertySchema.index({ 'location.city': 1 });
+propertySchema.index({ 'location.state': 1 });
+propertySchema.index({ type: 1 });
+propertySchema.index({ bedrooms: 1 });
+propertySchema.index({ bathrooms: 1 });
+propertySchema.index({ petFriendly: 1 });
+propertySchema.index({ furnished: 1 });
 exports.Property = mongoose_1.default.model('Property', propertySchema);
 //# sourceMappingURL=Property.js.map

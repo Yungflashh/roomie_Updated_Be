@@ -9,7 +9,8 @@ class ChallengeController {
     async getActiveChallenges(req, res) {
         try {
             const { type } = req.query;
-            const challenges = await challenge_service_1.default.getActiveChallenges(type);
+            const userId = req.user?.userId;
+            const challenges = await challenge_service_1.default.getActiveChallenges(type, userId);
             res.status(200).json({
                 success: true,
                 data: { challenges },
@@ -95,6 +96,23 @@ class ChallengeController {
             res.status(500).json({
                 success: false,
                 message: 'Failed to fetch user challenges',
+            });
+        }
+    }
+    async getGlobalLeaderboard(req, res) {
+        try {
+            const { limit = 10, type } = req.query;
+            const leaderboard = await challenge_service_1.default.getGlobalLeaderboard(parseInt(limit), type);
+            res.status(200).json({
+                success: true,
+                data: leaderboard,
+            });
+        }
+        catch (error) {
+            logger_1.default.error('Get global leaderboard error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to fetch leaderboard',
             });
         }
     }

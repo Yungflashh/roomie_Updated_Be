@@ -17,7 +17,15 @@ router.use(auth_middleware_1.authenticate);
  * @desc    Send message
  * @access  Private
  */
-router.post('/', (0, upload_middleware_1.setUploadType)('chat'), upload_middleware_1.upload.single('media'), upload_middleware_1.checkImageDuplicate, (0, validation_middleware_1.validate)(schemas_1.sendMessageValidation), message_controller_1.default.sendMessage);
+router.post('/', (0, upload_middleware_1.setUploadType)('chat'), upload_middleware_1.upload.single('media'), upload_middleware_1.checkImageDuplicate, 
+// NOTE: uploadToCloudinary removed — media messages now use deferred processing
+(0, validation_middleware_1.validate)(schemas_1.sendMessageValidation), message_controller_1.default.sendMessage);
+/**
+ * @route   DELETE /api/v1/messages/pending/:pendingId
+ * @desc    Cancel a pending media upload (within 4s window)
+ * @access  Private
+ */
+router.delete('/pending/:pendingId', message_controller_1.default.cancelPendingUpload);
 /**
  * @route   GET /api/v1/messages/:matchId
  * @desc    Get messages for a match
@@ -30,6 +38,12 @@ router.get('/:matchId', (0, validation_middleware_1.validate)(schemas_1.paginati
  * @access  Private
  */
 router.put('/:matchId/read', message_controller_1.default.markAsRead);
+/**
+ * @route   DELETE /api/v1/messages/:matchId/clear
+ * @desc    Clear all messages in a chat (for requesting user only)
+ * @access  Private
+ */
+router.delete('/:matchId/clear', message_controller_1.default.clearChat);
 /**
  * @route   DELETE /api/v1/messages/:messageId
  * @desc    Delete message

@@ -2,6 +2,11 @@ import { Response } from 'express';
 import { AuthRequest } from '../types';
 declare class DiscoveryController {
     /**
+     * Aggregated discovery feed — single endpoint for the Discovery screen
+     * Returns: users, filterOptions, pointsStats, pointsConfig
+     */
+    getDiscoveryFeed(req: AuthRequest, res: Response): Promise<void>;
+    /**
      * Discover users with filters
      */
     discoverUsers(req: AuthRequest, res: Response): Promise<void>;

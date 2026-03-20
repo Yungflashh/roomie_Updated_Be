@@ -23,6 +23,11 @@ declare class UserController {
     reportUser(req: AuthRequest, res: Response): Promise<void>;
     addInterests(req: AuthRequest, res: Response): Promise<void>;
     removeInterest(req: AuthRequest, res: Response): Promise<void>;
+    getNotificationSettings(req: AuthRequest, res: Response): Promise<void>;
+    updateNotificationSettings(req: AuthRequest, res: Response): Promise<void>;
+    getPrivacySettings(req: AuthRequest, res: Response): Promise<void>;
+    updatePrivacySettings(req: AuthRequest, res: Response): Promise<void>;
+    deleteAccount(req: AuthRequest, res: Response): Promise<void>;
 }
 declare const _default: UserController;
 export default _default;

@@ -306,6 +306,17 @@ class RoommateGroupController {
             });
         }
     };
+    deleteGroup = async (req, res) => {
+        try {
+            const userId = req.user?.userId;
+            const { groupId } = req.params;
+            await roommateGroup_service_1.default.deleteGroup(groupId, userId);
+            res.status(200).json({ success: true, message: 'Group deleted' });
+        }
+        catch (error) {
+            res.status(400).json({ success: false, message: error.message || 'Failed to delete group' });
+        }
+    };
 }
 exports.default = new RoommateGroupController();
 //# sourceMappingURL=roommateGroup.controller.js.map

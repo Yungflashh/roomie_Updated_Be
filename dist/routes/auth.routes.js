@@ -57,6 +57,36 @@ router.put('/change-password', auth_middleware_1.authenticate, auth_controller_1
  * @access  Private
  */
 router.delete('/account', auth_middleware_1.authenticate, auth_controller_1.default.deleteAccount);
-router.get('/streak', auth_middleware_1.authenticate, auth_controller_1.default.getStreak); // ✅ NEW ENDPOINT
+router.get('/streak', auth_middleware_1.authenticate, auth_controller_1.default.getStreak);
+/**
+ * @route   POST /api/v1/auth/send-verification
+ * @desc    Send email verification OTP
+ * @access  Private
+ */
+router.post('/send-verification', auth_middleware_1.authenticate, auth_controller_1.default.sendVerification);
+/**
+ * @route   POST /api/v1/auth/verify-email
+ * @desc    Verify email with OTP code
+ * @access  Private
+ */
+router.post('/verify-email', auth_middleware_1.authenticate, auth_controller_1.default.verifyEmail);
+/**
+ * @route   POST /api/v1/auth/forgot-password
+ * @desc    Request password reset code
+ * @access  Public
+ */
+router.post('/forgot-password', auth_controller_1.default.forgotPassword);
+/**
+ * @route   POST /api/v1/auth/verify-reset-code
+ * @desc    Verify password reset OTP
+ * @access  Public
+ */
+router.post('/verify-reset-code', auth_controller_1.default.verifyResetCode);
+/**
+ * @route   POST /api/v1/auth/reset-password
+ * @desc    Reset password with token
+ * @access  Public
+ */
+router.post('/reset-password', auth_controller_1.default.resetPassword);
 exports.default = router;
 //# sourceMappingURL=auth.routes.js.map

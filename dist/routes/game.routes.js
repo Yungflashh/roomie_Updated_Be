@@ -55,6 +55,12 @@ router.get('/:gameId/leaderboard', game_controller_1.default.getLeaderboard);
  */
 router.post('/invite', game_controller_1.default.sendInvitation);
 /**
+ * @route   POST /api/v1/games/invite/multiplayer
+ * @desc    Send multiplayer game invitation to multiple users
+ * @access  Private
+ */
+router.post('/invite/multiplayer', game_controller_1.default.sendMultiplayerInvitation);
+/**
  * @route   POST /api/v1/games/session/:sessionId/respond
  * @desc    Respond to game invitation (accept/decline)
  * @access  Private

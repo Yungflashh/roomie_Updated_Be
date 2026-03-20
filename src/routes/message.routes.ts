@@ -6,6 +6,7 @@ import { sendMessageValidation, paginationValidation } from '../validation/schem
 import {
   upload,
   setUploadType,
+  uploadToCloudinary,
   checkImageDuplicate,
   checkVideoDuplicate,
 } from '../middleware/upload.middleware';
@@ -25,9 +26,17 @@ router.post(
   setUploadType('chat'),
   upload.single('media'),
   checkImageDuplicate,
+  // NOTE: uploadToCloudinary removed — media messages now use deferred processing
   validate(sendMessageValidation),
   messageController.sendMessage
 );
+
+/**
+ * @route   DELETE /api/v1/messages/pending/:pendingId
+ * @desc    Cancel a pending media upload (within 4s window)
+ * @access  Private
+ */
+router.delete('/pending/:pendingId', messageController.cancelPendingUpload);
 
 /**
  * @route   GET /api/v1/messages/:matchId
@@ -46,6 +55,13 @@ router.get(
  * @access  Private
  */
 router.put('/:matchId/read', messageController.markAsRead);
+
+/**
+ * @route   DELETE /api/v1/messages/:matchId/clear
+ * @desc    Clear all messages in a chat (for requesting user only)
+ * @access  Private
+ */
+router.delete('/:matchId/clear', messageController.clearChat);
 
 /**
  * @route   DELETE /api/v1/messages/:messageId

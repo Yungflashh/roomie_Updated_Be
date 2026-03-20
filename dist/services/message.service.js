@@ -7,6 +7,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const models_1 = require("../models");
 const socket_config_1 = require("../config/socket.config");
 const notification_service_1 = __importDefault(require("./notification.service"));
+const weeklyChallenge_service_1 = __importDefault(require("./weeklyChallenge.service"));
 const logger_1 = __importDefault(require("../utils/logger"));
 const fs_1 = __importDefault(require("fs"));
 class MessageService {
@@ -14,7 +15,7 @@ class MessageService {
      * Send a message
      */
     async sendMessage(data) {
-        const { matchId, senderId, receiverId, type, content, mediaUrl, thumbnail, metadata } = data;
+        const { matchId, senderId, receiverId, type, content, mediaUrl, thumbnail, metadata, replyTo } = data;
         // Verify match exists and user is part of it
         const match = await models_1.Match.findOne({
             _id: matchId,
@@ -36,13 +37,21 @@ class MessageService {
             content,
             mediaUrl,
             thumbnail,
+            replyTo: replyTo || undefined,
             duration: metadata?.duration,
             fileSize: metadata?.fileSize,
             fileName: metadata?.fileName,
             read: false,
         });
-        // Populate sender info
+        // Populate sender info and reply message
         await message.populate('sender', 'firstName lastName profilePhoto');
+        if (replyTo) {
+            await message.populate({
+                path: 'replyTo',
+                select: 'content type sender mediaUrl',
+                populate: { path: 'sender', select: 'firstName lastName' },
+            });
+        }
         // Update match last message time and unread count
         const isUser1 = match.user1.toString() === senderId;
         const unreadField = isUser1 ? 'unreadCount.user2' : 'unreadCount.user1';
@@ -68,6 +77,13 @@ class MessageService {
         // Create notification
         await notification_service_1.default.notifyNewMessage(senderId, receiverId, content || `Sent a ${type}`);
         logger_1.default.info(`Message sent: ${senderId} -> ${receiverId}`);
+        // Track challenge progress
+        try {
+            await weeklyChallenge_service_1.default.trackAction(senderId, 'message');
+        }
+        catch (e) {
+            logger_1.default.warn('Challenge tracking (message) error:', e);
+        }
         return message;
     }
     /**
@@ -85,14 +101,21 @@ class MessageService {
         const messages = await models_1.Message.find({
             match: matchId,
             deleted: false,
+            deletedFor: { $ne: userId },
         })
             .sort({ createdAt: -1 })
             .skip(skip)
             .limit(limit)
-            .populate('sender receiver', 'firstName lastName profilePhoto');
+            .populate('sender receiver', 'firstName lastName profilePhoto')
+            .populate({
+            path: 'replyTo',
+            select: 'content type sender mediaUrl',
+            populate: { path: 'sender', select: 'firstName lastName' },
+        });
         const total = await models_1.Message.countDocuments({
             match: matchId,
             deleted: false,
+            deletedFor: { $ne: userId },
         });
         return {
             messages: messages.reverse(),
@@ -127,6 +150,21 @@ class MessageService {
         logger_1.default.info(`Messages marked as read for match ${matchId} by user ${userId}`);
     }
     /**
+     * Clear all messages in a match for the requesting user (soft delete)
+     */
+    async clearChat(matchId, userId) {
+        const match = await models_1.Match.findOne({
+            _id: matchId,
+            $or: [{ user1: userId }, { user2: userId }],
+        });
+        if (!match) {
+            throw new Error('Match not found');
+        }
+        const result = await models_1.Message.updateMany({ match: matchId, deleted: false }, { $addToSet: { deletedFor: userId } });
+        logger_1.default.info(`Chat cleared for user ${userId} in match ${matchId}: ${result.modifiedCount} messages`);
+        return result.modifiedCount;
+    }
+    /**
      * Delete a message
      */
     async deleteMessage(messageId, userId) {
@@ -137,6 +175,8 @@ class MessageService {
         if (!message) {
             throw new Error('Message not found or unauthorized');
         }
+        const receiverId = message.receiver?.toString();
+        const matchId = message.match?.toString();
         message.deleted = true;
         await message.save();
         if (message.mediaUrl) {
@@ -144,6 +184,14 @@ class MessageService {
             if (fs_1.default.existsSync(filePath)) {
                 fs_1.default.unlinkSync(filePath);
             }
+        }
+        // Notify the receiver so the message is removed from their screen
+        if (receiverId) {
+            (0, socket_config_1.emitToUser)(receiverId, 'message:deleted', {
+                messageId,
+                matchId,
+            });
+            logger_1.default.info(`Message:deleted emitted to receiver ${receiverId}`);
         }
         logger_1.default.info(`Message deleted: ${messageId}`);
     }

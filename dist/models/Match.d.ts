@@ -2,6 +2,7 @@ import mongoose, { Document } from 'mongoose';
 export interface IMatchDocument extends Document {
     user1: mongoose.Types.ObjectId;
     user2: mongoose.Types.ObjectId;
+    type: 'match' | 'listing_inquiry';
     compatibilityScore: number;
     matchedAt: Date;
     status: 'active' | 'expired' | 'blocked';
@@ -12,6 +13,7 @@ export interface IMatchDocument extends Document {
     };
     initiatedBy?: mongoose.Types.ObjectId;
     pointsCost?: number;
+    listingId?: mongoose.Types.ObjectId;
 }
 export declare const Match: mongoose.Model<IMatchDocument, {}, {}, {}, mongoose.Document<unknown, {}, IMatchDocument, {}, mongoose.DefaultSchemaOptions> & IMatchDocument & Required<{
     _id: mongoose.Types.ObjectId;

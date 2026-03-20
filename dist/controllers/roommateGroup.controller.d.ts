@@ -53,6 +53,7 @@ declare class RoommateGroupController {
      * Get group leaderboard
      */
     getLeaderboard: (req: AuthRequest, res: Response) => Promise<void>;
+    deleteGroup: (req: AuthRequest, res: Response) => Promise<void>;
 }
 declare const _default: RoommateGroupController;
 export default _default;

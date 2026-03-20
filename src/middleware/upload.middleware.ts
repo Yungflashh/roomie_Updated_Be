@@ -38,10 +38,10 @@ export const upload = multer({
     fileSize: 10 * 1024 * 1024, // 10MB
   },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
+    if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('audio/') || file.mimetype.startsWith('video/')) {
       cb(null, true);
     } else {
-      cb(new Error('Only image files are allowed'));
+      cb(new Error('Only image, audio, and video files are allowed'));
     }
   },
 });
@@ -58,15 +58,33 @@ export const uploadToCloudinary = async (
     }
 
     const userId = req.user?.userId;
-    const folder = `roomie/users/${userId}`;
+    const isAudio = req.file.mimetype.startsWith('audio/');
+    const isVideo = req.file.mimetype.startsWith('video/');
+    const folder = `roomie/users/${userId}${isAudio ? '/audio' : isVideo ? '/video' : ''}`;
 
-    logger.info(`Uploading to Cloudinary for user: ${userId}`);
+    logger.info(`Uploading to Cloudinary for user: ${userId}, type: ${req.file.mimetype}`);
 
-    const result = await mediaService.uploadFromPath(
-      req.file.path,
-      folder,
-      `${Date.now()}_${req.file.originalname.split('.')[0]}`
-    );
+    let result;
+    if (isAudio || isVideo) {
+      // Upload audio/video as raw resource (no image transformations)
+      const uploadResult = await cloudinary.uploader.upload(req.file.path, {
+        folder,
+        resource_type: isVideo ? 'video' : 'raw',
+        public_id: `${Date.now()}_${req.file.originalname.split('.')[0]}`,
+      });
+      result = {
+        url: uploadResult.secure_url,
+        publicId: uploadResult.public_id,
+        width: 0,
+        height: 0,
+      };
+    } else {
+      result = await mediaService.uploadFromPath(
+        req.file.path,
+        folder,
+        `${Date.now()}_${req.file.originalname.split('.')[0]}`
+      );
+    }
 
     // Attach Cloudinary result to request
     (req as any).cloudinaryResult = result;
@@ -167,6 +185,11 @@ export const checkImageDuplicate = async (
 ) => {
   try {
     if (!req.file) {
+      return next();
+    }
+
+    // Skip duplicate check for non-image files (audio, video)
+    if (!req.file.mimetype.startsWith('image/')) {
       return next();
     }
 

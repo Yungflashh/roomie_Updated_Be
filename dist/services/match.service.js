@@ -9,23 +9,26 @@ const socket_config_1 = require("../config/socket.config");
 const compatibility_service_1 = __importDefault(require("./compatibility.service"));
 const notification_service_1 = __importDefault(require("./notification.service"));
 const points_service_1 = __importDefault(require("./points.service"));
+const premium_service_1 = __importDefault(require("./premium.service"));
+const weeklyChallenge_service_1 = __importDefault(require("./weeklyChallenge.service"));
 const logger_1 = __importDefault(require("../utils/logger"));
 class MatchService {
     /**
      * Get potential matches
      */
-    async getPotentialMatches(userId, limit = 20, minCompatibility = 0, sortBy = 'compatibility' // NEW: Sort parameter
+    async getPotentialMatches(userId, limit = 20, minCompatibility = 0, sortBy = 'compatibility', liveCoords, // [longitude, latitude] from device GPS
+    maxDistance // in km — only used when sorting by distance
     ) {
         const currentUser = await models_1.User.findById(userId);
         if (!currentUser) {
             throw new Error('User not found');
         }
-        logger_1.default.info(`Getting potential matches for user: ${userId}, sortBy: ${sortBy}`);
-        // Get user's coordinates for distance calculation
-        const userCoords = currentUser.location?.coordinates;
+        logger_1.default.info(`Getting potential matches for user: ${userId}, sortBy: ${sortBy}, liveCoords: ${liveCoords || 'none'}`);
+        // Use live GPS coordinates if provided, otherwise fall back to profile coordinates
+        const userCoords = liveCoords || currentUser.location?.coordinates;
         const interactedUserIds = [
             ...currentUser.likes.map(id => id.toString()),
-            ...currentUser.passes.map(id => id.toString()),
+            // passes are no longer excluded — skipped users can reappear
             ...currentUser.blockedUsers.map(id => id.toString()),
         ];
         const potentialMatches = await models_1.User.find({
@@ -37,7 +40,7 @@ class MatchService {
             blockedUsers: { $ne: userId },
         })
             .select('firstName lastName profilePhoto photos bio occupation ' +
-            'location preferences lifestyle interests verified')
+            'location preferences lifestyle interests verified subscription metadata')
             .limit(limit * 2)
             .lean();
         logger_1.default.info(`Found ${potentialMatches.length} potential matches before scoring`);
@@ -64,25 +67,43 @@ class MatchService {
                     lifestyle: user.lifestyle,
                     interests: user.interests || [],
                     verified: user.verified,
+                    subscription: user.subscription,
+                    metadata: user.metadata,
                 },
                 compatibilityScore: score,
-                distance, // NEW: Include distance in result
+                distance,
             };
         })
             .filter((match) => match.compatibilityScore >= minCompatibility);
         // Sort based on the sortBy parameter
         if (sortBy === 'distance') {
-            // Filter out users without location data and sort by distance (closest first)
-            const matchesWithDistance = matchesWithScores
-                .filter(m => m.distance !== undefined)
-                .sort((a, b) => (a.distance || 0) - (b.distance || 0));
-            logger_1.default.info(`Returning ${matchesWithDistance.slice(0, limit).length} matches sorted by distance`);
+            // Filter out users without location data, apply max distance, sort closest first
+            let matchesWithDistance = matchesWithScores
+                .filter(m => m.distance !== undefined);
+            if (maxDistance) {
+                matchesWithDistance = matchesWithDistance.filter(m => (m.distance || 0) <= maxDistance);
+            }
+            matchesWithDistance.sort((a, b) => {
+                // Boosted/premium users appear first
+                const aBoost = this.getUserPriority(a.user);
+                const bBoost = this.getUserPriority(b.user);
+                if (aBoost !== bBoost)
+                    return bBoost - aBoost;
+                return (a.distance || 0) - (b.distance || 0);
+            });
+            logger_1.default.info(`Returning ${matchesWithDistance.slice(0, limit).length} matches sorted by distance (max: ${maxDistance || 'unlimited'}km)`);
             return matchesWithDistance.slice(0, limit);
         }
         else {
-            // Sort by compatibility score (highest first) - default behavior
+            // Sort by compatibility score (highest first) with premium priority
             const sortedMatches = matchesWithScores
-                .sort((a, b) => b.compatibilityScore - a.compatibilityScore)
+                .sort((a, b) => {
+                const aBoost = this.getUserPriority(a.user);
+                const bBoost = this.getUserPriority(b.user);
+                if (aBoost !== bBoost)
+                    return bBoost - aBoost;
+                return b.compatibilityScore - a.compatibilityScore;
+            })
                 .slice(0, limit);
             logger_1.default.info(`Returning ${sortedMatches.length} matches sorted by compatibility`);
             return sortedMatches;
@@ -129,7 +150,7 @@ class MatchService {
             _id: { $in: pendingLikeIds },
         })
             .select('firstName lastName profilePhoto photos bio occupation ' +
-            'location preferences lifestyle interests verified')
+            'location preferences lifestyle interests verified subscription')
             .lean();
         logger_1.default.info(`Found ${likedUsers.length} sent likes for ${userId}`);
         return likedUsers.map(user => ({
@@ -155,8 +176,10 @@ class MatchService {
         const user = await models_1.User.findById(userId).select('gamification subscription');
         if (!user)
             throw new Error('User not found');
-        // Calculate match cost
-        const pointsCost = await points_service_1.default.calculateMatchCost(userId);
+        // Calculate match cost with premium discount
+        let pointsCost = await points_service_1.default.calculateMatchCost(userId);
+        const limits = premium_service_1.default.getLimits(user);
+        pointsCost = Math.round(pointsCost * limits.matchCostMultiplier);
         // Check if user has enough points
         if (user.gamification.points < pointsCost) {
             return {
@@ -209,11 +232,16 @@ class MatchService {
         catch (error) {
             throw new Error(`Failed to deduct points: ${error.message}`);
         }
-        // Add to likes
+        // Add to likes and record last action for rewind
         if (!currentUser.likes.includes(targetUserId)) {
             currentUser.likes.push(targetUserId);
-            await currentUser.save();
         }
+        currentUser.metadata = {
+            ...currentUser.metadata,
+            lastSwipeAction: 'like',
+            lastSwipedUserId: targetUserId,
+        };
+        await currentUser.save();
         // Check for mutual match
         const isMutualMatch = targetUser.likes.includes(userId);
         if (isMutualMatch) {
@@ -235,6 +263,14 @@ class MatchService {
                     pointsCost,
                 });
                 logger_1.default.info(`New match created: ${userId} <-> ${targetUserId}`);
+                // Track challenge progress for both users
+                try {
+                    await weeklyChallenge_service_1.default.trackAction(userId, 'match');
+                    await weeklyChallenge_service_1.default.trackAction(targetUserId, 'match');
+                }
+                catch (e) {
+                    logger_1.default.warn('Challenge tracking (match) error:', e);
+                }
                 // Award bonus for successful match
                 const config = await points_service_1.default.getConfig();
                 const matchBonus = config.firstMatchBonus;
@@ -318,28 +354,42 @@ class MatchService {
         };
     }
     /**
-     * Pass a user
+     * Pass a user — soft skip, does NOT permanently exclude them.
+     * The user will reappear in future discover queries.
+     * Only used for declining/cancelling explicit match requests.
      */
     async passUser(userId, targetUserId) {
-        await models_1.User.findByIdAndUpdate(userId, { $addToSet: { passes: targetUserId } });
+        // Record the pass for rewind feature
+        await models_1.User.findByIdAndUpdate(userId, {
+            $pull: { likes: targetUserId },
+            $push: { passes: { $each: [targetUserId], $slice: -50 } },
+            $set: {
+                'metadata.lastSwipeAction': 'pass',
+                'metadata.lastSwipedUserId': targetUserId,
+            },
+        });
+        logger_1.default.info(`User ${userId} passed ${targetUserId} — recorded for rewind`);
     }
     /**
      * Get user's matches with last message info
      */
-    async getMatches(userId, page = 1, limit = 20) {
+    async getMatches(userId, page = 1, limit = 20, excludeListingInquiries = false) {
         const skip = (page - 1) * limit;
-        const matches = await models_1.Match.find({
+        const matchFilter = {
             $or: [{ user1: userId }, { user2: userId }],
             status: 'active',
-        })
+        };
+        // Only exclude listing inquiries if explicitly requested
+        if (excludeListingInquiries) {
+            matchFilter.type = { $ne: 'listing_inquiry' };
+        }
+        const matches = await models_1.Match.find(matchFilter)
             .sort({ lastMessageAt: -1, matchedAt: -1 })
             .skip(skip)
             .limit(limit)
-            .populate('user1 user2', 'firstName lastName profilePhoto bio occupation isActive lastSeen');
-        const total = await models_1.Match.countDocuments({
-            $or: [{ user1: userId }, { user2: userId }],
-            status: 'active',
-        });
+            .populate('user1 user2', 'firstName lastName profilePhoto bio occupation isActive lastSeen verified subscription')
+            .populate('listingId', 'title photos price');
+        const total = await models_1.Match.countDocuments(matchFilter);
         // Get last message for each match
         const formattedMatches = await Promise.all(matches.map(async (match) => {
             const otherUser = match.user1._id.toString() === userId
@@ -357,6 +407,8 @@ class MatchService {
             return {
                 _id: match._id,
                 id: match._id,
+                type: match.type || 'match',
+                listingId: match.listingId,
                 user: otherUser,
                 compatibilityScore: match.compatibilityScore,
                 matchedAt: match.matchedAt,
@@ -428,7 +480,7 @@ class MatchService {
             },
         })
             .select('firstName lastName profilePhoto photos bio occupation ' +
-            'location preferences lifestyle interests verified')
+            'location preferences lifestyle interests verified subscription')
             .limit(50)
             .lean();
         logger_1.default.info(`Found ${usersWhoLiked.length} users who liked ${userId}`);
@@ -446,7 +498,76 @@ class MatchService {
             lifestyle: user.lifestyle,
             interests: user.interests || [],
             verified: user.verified,
+            subscription: user.subscription,
         }));
+    }
+    /**
+     * Find or create a conversation for listing inquiry — not a match, just a chat channel
+     */
+    async findOrCreateListingInquiry(userId, landlordId, listingId) {
+        if (userId === landlordId) {
+            throw new Error('Cannot message yourself');
+        }
+        // First check if a listing inquiry already exists
+        const existingInquiry = await models_1.Match.findOne({
+            type: 'listing_inquiry',
+            $or: [
+                { user1: userId, user2: landlordId },
+                { user1: landlordId, user2: userId },
+            ],
+            status: 'active',
+        });
+        if (existingInquiry) {
+            return existingInquiry;
+        }
+        // Create a new listing inquiry conversation (NOT a match)
+        try {
+            const conversation = await models_1.Match.create({
+                user1: userId,
+                user2: landlordId,
+                type: 'listing_inquiry',
+                compatibilityScore: 0,
+                matchedAt: new Date(),
+                status: 'active',
+                listingId: listingId || undefined,
+            });
+            logger_1.default.info(`Listing inquiry created: ${userId} <-> ${landlordId} (id: ${conversation._id}, listing: ${listingId || 'none'})`);
+            return conversation;
+        }
+        catch (error) {
+            // If duplicate key error, the old unique index may still exist — find any existing conversation
+            if (error.code === 11000) {
+                const anyExisting = await models_1.Match.findOne({
+                    $or: [
+                        { user1: userId, user2: landlordId },
+                        { user1: landlordId, user2: userId },
+                    ],
+                    status: 'active',
+                });
+                if (anyExisting) {
+                    return anyExisting;
+                }
+            }
+            throw error;
+        }
+    }
+    /**
+     * Calculate user priority for discovery sorting (boosted > premium > free)
+     */
+    getUserPriority(user) {
+        let priority = 0;
+        // Boosted in last 2 hours
+        if (user.metadata?.lastBoostAt) {
+            const boostAge = Date.now() - new Date(user.metadata.lastBoostAt).getTime();
+            if (boostAge < 2 * 60 * 60 * 1000)
+                priority += 10;
+        }
+        // Premium/Pro users
+        if (user.subscription?.plan === 'pro')
+            priority += 5;
+        else if (user.subscription?.plan === 'premium')
+            priority += 3;
+        return priority;
     }
     /**
      * Get matched user IDs helper
@@ -455,6 +576,7 @@ class MatchService {
         const matches = await models_1.Match.find({
             $or: [{ user1: userId }, { user2: userId }],
             status: 'active',
+            type: { $ne: 'listing_inquiry' },
         }).select('user1 user2');
         return matches.map((match) => match.user1.toString() === userId
             ? match.user2.toString()

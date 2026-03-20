@@ -50,6 +50,12 @@ const challengeSchema = new mongoose_1.Schema({
         required: true,
         index: true,
     },
+    category: {
+        type: String,
+        enum: ['social', 'matching', 'events', 'games', 'chores', 'listings', 'general'],
+        default: 'general',
+    },
+    icon: String,
     startDate: {
         type: Date,
         required: true,
@@ -65,6 +71,8 @@ const challengeSchema = new mongoose_1.Schema({
         required: true,
         min: 0,
     },
+    cashReward: { type: Number, default: 0 },
+    cashCurrency: { type: String, default: 'NGN' },
     badgeReward: String,
     requirements: [{
             action: {
@@ -88,12 +96,29 @@ const challengeSchema = new mongoose_1.Schema({
                 default: 0,
                 min: 0,
             },
+            progressByAction: {
+                type: Map,
+                of: Number,
+                default: {},
+            },
             completed: {
                 type: Boolean,
                 default: false,
             },
             completedAt: Date,
+            pointsAwarded: { type: Number, default: 0 },
         }],
+    tierRewards: [{
+            tier: { type: String, required: true },
+            minRank: { type: Number, required: true },
+            maxRank: { type: Number, required: true },
+            points: { type: Number, default: 0 },
+            cash: { type: Number, default: 0 },
+            badge: String,
+            title: String,
+        }],
+    maxParticipants: Number,
+    createdBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User' },
     isActive: {
         type: Boolean,
         default: true,

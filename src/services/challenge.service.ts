@@ -6,7 +6,7 @@ class ChallengeService {
   /**
    * Get active challenges
    */
-  async getActiveChallenges(type?: 'daily' | 'weekly' | 'monthly'): Promise<IChallengeDocument[]> {
+  async getActiveChallenges(type?: 'daily' | 'weekly' | 'monthly', userId?: string): Promise<any[]> {
     const query: any = {
       isActive: true,
       startDate: { $lte: new Date() },
@@ -18,7 +18,45 @@ class ChallengeService {
     }
 
     const challenges = await Challenge.find(query).sort({ startDate: -1 });
-    return challenges;
+
+    return challenges.map((c) => {
+      const participant = userId
+        ? c.participants.find((p) => p.user.toString() === userId)
+        : undefined;
+      const totalTarget = c.requirements.reduce((sum, r) => sum + r.target, 0);
+      const progress = participant?.progress || 0;
+
+      // Build per-action progress breakdown
+      const actionProgress = c.requirements.map((req) => ({
+        action: req.action,
+        target: req.target,
+        current: participant?.progressByAction?.get(req.action) || 0,
+      }));
+
+      return {
+        _id: c._id,
+        title: c.title,
+        description: c.description,
+        type: c.type,
+        category: c.category,
+        icon: c.icon,
+        startDate: c.startDate,
+        endDate: c.endDate,
+        pointsReward: c.pointsReward,
+        cashReward: c.cashReward,
+        cashCurrency: c.cashCurrency,
+        badgeReward: c.badgeReward,
+        requirements: c.requirements,
+        tierRewards: c.tierRewards,
+        participantCount: c.participants.length,
+        joined: !!participant,
+        myProgress: progress,
+        myCompleted: participant?.completed || false,
+        totalTarget,
+        progressPercent: totalTarget > 0 ? Math.min(100, Math.round((progress / totalTarget) * 100)) : 0,
+        actionProgress,
+      };
+    });
   }
 
   /**
@@ -64,6 +102,7 @@ class ChallengeService {
     challenge.participants.push({
       user: userId as any,
       progress: 0,
+      progressByAction: new Map(),
       completed: false,
     });
 
@@ -141,6 +180,58 @@ class ChallengeService {
     }).sort({ startDate: -1 });
 
     return challenges;
+  }
+
+  /**
+   * Get global leaderboard (top users by gamification points)
+   */
+  async getGlobalLeaderboard(limit: number = 10, type?: string): Promise<any[]> {
+    // Aggregate points earned from completed challenges per user
+    const matchStage: any = { 'participants.completed': true };
+    if (type && ['daily', 'weekly', 'monthly'].includes(type)) {
+      matchStage.type = type;
+    }
+
+    const leaderboard = await Challenge.aggregate([
+      { $match: type ? { type } : {} },
+      { $unwind: '$participants' },
+      { $match: { 'participants.completed': true } },
+      {
+        $group: {
+          _id: '$participants.user',
+          weeklyPoints: { $sum: '$pointsReward' },
+          challengesCompleted: { $sum: 1 },
+        },
+      },
+      { $sort: { weeklyPoints: -1 } },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'userInfo',
+        },
+      },
+      { $unwind: '$userInfo' },
+      {
+        $project: {
+          userId: '$_id',
+          firstName: '$userInfo.firstName',
+          lastName: '$userInfo.lastName',
+          profilePhoto: '$userInfo.profilePhoto',
+          verified: '$userInfo.verified',
+          subscription: '$userInfo.subscription',
+          weeklyPoints: 1,
+          challengesCompleted: 1,
+        },
+      },
+    ]);
+
+    return leaderboard.map((entry: any, index: number) => ({
+      ...entry,
+      rank: index + 1,
+    }));
   }
 
   /**

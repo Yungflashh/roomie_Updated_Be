@@ -11,6 +11,7 @@ const sharp_1 = __importDefault(require("sharp"));
 const duplicateDetection_service_1 = __importDefault(require("../services/duplicateDetection.service"));
 const logger_1 = __importDefault(require("../utils/logger"));
 const fs_1 = __importDefault(require("fs"));
+const cloudinary_config_1 = require("../config/cloudinary.config");
 const media_service_1 = require("../services/media.service");
 const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE_MB || '50') * 1024 * 1024;
 ;
@@ -35,11 +36,11 @@ exports.upload = (0, multer_1.default)({
         fileSize: 10 * 1024 * 1024, // 10MB
     },
     fileFilter: (req, file, cb) => {
-        if (file.mimetype.startsWith('image/')) {
+        if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('audio/') || file.mimetype.startsWith('video/')) {
             cb(null, true);
         }
         else {
-            cb(new Error('Only image files are allowed'));
+            cb(new Error('Only image, audio, and video files are allowed'));
         }
     },
 });
@@ -50,9 +51,28 @@ const uploadToCloudinary = async (req, res, next) => {
             return next();
         }
         const userId = req.user?.userId;
-        const folder = `roomie/users/${userId}`;
-        logger_1.default.info(`Uploading to Cloudinary for user: ${userId}`);
-        const result = await media_service_1.mediaService.uploadFromPath(req.file.path, folder, `${Date.now()}_${req.file.originalname.split('.')[0]}`);
+        const isAudio = req.file.mimetype.startsWith('audio/');
+        const isVideo = req.file.mimetype.startsWith('video/');
+        const folder = `roomie/users/${userId}${isAudio ? '/audio' : isVideo ? '/video' : ''}`;
+        logger_1.default.info(`Uploading to Cloudinary for user: ${userId}, type: ${req.file.mimetype}`);
+        let result;
+        if (isAudio || isVideo) {
+            // Upload audio/video as raw resource (no image transformations)
+            const uploadResult = await cloudinary_config_1.cloudinary.uploader.upload(req.file.path, {
+                folder,
+                resource_type: isVideo ? 'video' : 'raw',
+                public_id: `${Date.now()}_${req.file.originalname.split('.')[0]}`,
+            });
+            result = {
+                url: uploadResult.secure_url,
+                publicId: uploadResult.public_id,
+                width: 0,
+                height: 0,
+            };
+        }
+        else {
+            result = await media_service_1.mediaService.uploadFromPath(req.file.path, folder, `${Date.now()}_${req.file.originalname.split('.')[0]}`);
+        }
         // Attach Cloudinary result to request
         req.cloudinaryResult = result;
         // Delete temp file
@@ -133,6 +153,10 @@ const fileFilter = (req, file, cb) => {
 const checkImageDuplicate = async (req, res, next) => {
     try {
         if (!req.file) {
+            return next();
+        }
+        // Skip duplicate check for non-image files (audio, video)
+        if (!req.file.mimetype.startsWith('image/')) {
             return next();
         }
         logger_1.default.info('checkImageDuplicate middleware called');

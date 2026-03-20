@@ -4,7 +4,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const property_service_1 = __importDefault(require("../services/property.service"));
+const weeklyChallenge_service_1 = __importDefault(require("../services/weeklyChallenge.service"));
 const logger_1 = __importDefault(require("../utils/logger"));
+const audit_1 = require("../utils/audit");
 class PropertyController {
     async createProperty(req, res) {
         try {
@@ -41,6 +43,12 @@ class PropertyController {
                 parkingAvailable: req.body.parkingAvailable === true || req.body.parkingAvailable === 'true',
             };
             const property = await property_service_1.default.createProperty(propertyData);
+            await (0, audit_1.logAudit)({
+                actor: { id: landlordId, name: '', email: '' },
+                actorType: 'user', action: 'create_property', category: 'property',
+                target: { type: 'property', id: property._id.toString(), name: property.title },
+                details: `Listed property "${property.title}"`, req
+            });
             res.status(201).json({
                 success: true,
                 message: 'Property created successfully',
@@ -59,6 +67,11 @@ class PropertyController {
         try {
             const { propertyId } = req.params;
             const property = await property_service_1.default.getPropertyById(propertyId);
+            // Track challenge progress for property view
+            const userId = req.user?.userId;
+            if (userId) {
+                weeklyChallenge_service_1.default.trackAction(userId, 'property_view').catch(e => logger_1.default.warn('Challenge tracking (property_view) error:', e));
+            }
             res.status(200).json({
                 success: true,
                 data: { property },
@@ -78,6 +91,12 @@ class PropertyController {
             const landlordId = req.user?.userId;
             const { propertyId } = req.params;
             const property = await property_service_1.default.updateProperty(propertyId, landlordId, req.body);
+            await (0, audit_1.logAudit)({
+                actor: { id: landlordId, name: '', email: '' },
+                actorType: 'user', action: 'update_property', category: 'property',
+                target: { type: 'property', id: propertyId },
+                details: `Updated property ${propertyId}`, req
+            });
             res.status(200).json({
                 success: true,
                 message: 'Property updated successfully',
@@ -99,6 +118,12 @@ class PropertyController {
             const landlordId = req.user?.userId;
             const { propertyId } = req.params;
             await property_service_1.default.deleteProperty(propertyId, landlordId);
+            await (0, audit_1.logAudit)({
+                actor: { id: landlordId, name: '', email: '' },
+                actorType: 'user', action: 'delete_property', category: 'property',
+                target: { type: 'property', id: propertyId },
+                details: `Deleted property ${propertyId}`, req
+            });
             res.status(200).json({
                 success: true,
                 message: 'Property deleted successfully',
@@ -153,6 +178,12 @@ class PropertyController {
             const userId = req.user?.userId;
             const { propertyId } = req.params;
             await property_service_1.default.likeProperty(propertyId, userId);
+            await (0, audit_1.logAudit)({
+                actor: { id: userId, name: '', email: '' },
+                actorType: 'user', action: 'like_property', category: 'property',
+                target: { type: 'property', id: propertyId },
+                details: `Liked property ${propertyId}`, req
+            });
             res.status(200).json({
                 success: true,
                 message: 'Property liked',
@@ -171,6 +202,12 @@ class PropertyController {
             const userId = req.user?.userId;
             const { propertyId } = req.params;
             await property_service_1.default.unlikeProperty(propertyId, userId);
+            await (0, audit_1.logAudit)({
+                actor: { id: userId, name: '', email: '' },
+                actorType: 'user', action: 'unlike_property', category: 'property',
+                target: { type: 'property', id: propertyId },
+                details: `Unliked property ${propertyId}`, req
+            });
             res.status(200).json({
                 success: true,
                 message: 'Property unliked',

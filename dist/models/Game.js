@@ -61,7 +61,7 @@ const gameSchema = new mongoose_1.Schema({
     },
     maxPlayers: {
         type: Number,
-        default: 2,
+        default: 6,
         min: 1,
     },
     difficulty: {
@@ -146,6 +146,17 @@ const gameSessionSchema = new mongoose_1.Schema({
     invitedUser: {
         type: mongoose_1.Schema.Types.ObjectId,
         ref: 'User',
+    },
+    invitations: [{
+            user: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
+            matchId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Match', required: true },
+            status: { type: String, enum: ['pending', 'accepted', 'declined', 'expired'], default: 'pending' },
+            respondedAt: Date,
+        }],
+    mode: {
+        type: String,
+        enum: ['duel', 'multiplayer'],
+        default: 'duel',
     },
     winner: {
         type: mongoose_1.Schema.Types.ObjectId,
@@ -239,6 +250,7 @@ gameSessionSchema.index({ 'players.user': 1 });
 gameSessionSchema.index({ game: 1, status: 1 });
 gameSessionSchema.index({ match: 1, status: 1 });
 gameSessionSchema.index({ invitedUser: 1, status: 1 });
+gameSessionSchema.index({ 'invitations.user': 1, status: 1 });
 gameSessionSchema.index({ startedAt: -1 });
 exports.Game = mongoose_1.default.model('Game', gameSchema);
 exports.GameSession = mongoose_1.default.model('GameSession', gameSessionSchema);

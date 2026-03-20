@@ -14,6 +14,10 @@ declare class GameController {
      */
     sendInvitation(req: AuthRequest, res: Response): Promise<void>;
     /**
+     * Send multiplayer game invitation
+     */
+    sendMultiplayerInvitation(req: AuthRequest, res: Response): Promise<void>;
+    /**
      * Respond to game invitation
      */
     respondToInvitation(req: AuthRequest, res: Response): Promise<void>;

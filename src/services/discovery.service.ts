@@ -82,12 +82,12 @@ class DiscoveryService {
       throw new Error('User not found');
     }
 
-    // Build exclusion list (self, blocked, already interacted)
+    // Build exclusion list (self, blocked, already liked)
+    // Note: passes are NOT excluded — skipped users can reappear
     const excludeIds = [
       currentUserId,
       ...currentUser.blockedUsers.map(id => id.toString()),
       ...currentUser.likes.map(id => id.toString()),
-      ...currentUser.passes.map(id => id.toString()),
     ];
 
     // Build query
@@ -233,7 +233,7 @@ class DiscoveryService {
         .select(
           'firstName lastName profilePhoto photos bio occupation ' +
           'location preferences lifestyle interests verified gender ' +
-          'dateOfBirth createdAt lastActive'
+          'dateOfBirth createdAt lastActive subscription metadata'
         )
         .sort(sortOptions)
         .skip(skip)
@@ -262,9 +262,9 @@ class DiscoveryService {
         lifestyle: user.lifestyle,
         interests: user.interests || [],
         verified: user.verified,
+        subscription: user.subscription,
         gender: user.gender,
         age,
-        // createdAt: user.createdAt,
       };
     });
 
@@ -337,7 +337,7 @@ class DiscoveryService {
       ],
     })
       .select(
-        'firstName lastName profilePhoto bio occupation location verified'
+        'firstName lastName profilePhoto bio occupation location verified subscription'
       )
       .limit(limit)
       .lean();
@@ -352,6 +352,7 @@ class DiscoveryService {
       occupation: user.occupation,
       location: user.location,
       verified: user.verified,
+      subscription: user.subscription,
     }));
   }
 }

@@ -42,6 +42,31 @@ declare class AuthController {
      * GET /api/auth/streak
      */
     getStreak(req: AuthRequest, res: Response): Promise<void>;
+    /**
+     * Send email verification code
+     * POST /api/v1/auth/send-verification
+     */
+    sendVerification(req: AuthRequest, res: Response): Promise<void>;
+    /**
+     * Verify email with OTP code
+     * POST /api/v1/auth/verify-email
+     */
+    verifyEmail(req: AuthRequest, res: Response): Promise<void>;
+    /**
+     * Forgot password — send reset code
+     * POST /api/v1/auth/forgot-password
+     */
+    forgotPassword(req: AuthRequest, res: Response): Promise<void>;
+    /**
+     * Verify reset code
+     * POST /api/v1/auth/verify-reset-code
+     */
+    verifyResetCode(req: AuthRequest, res: Response): Promise<void>;
+    /**
+     * Reset password with token
+     * POST /api/v1/auth/reset-password
+     */
+    resetPassword(req: AuthRequest, res: Response): Promise<void>;
 }
 declare const _default: AuthController;
 export default _default;

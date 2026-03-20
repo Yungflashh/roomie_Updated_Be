@@ -91,5 +91,11 @@ router.delete('/:groupId/members/:memberId', roommateGroup_controller_1.default.
  * @access  Private
  */
 router.post('/:groupId/members/:memberId/promote', roommateGroup_controller_1.default.promoteMember);
+/**
+ * @route   DELETE /api/v1/roommate-groups/:groupId
+ * @desc    Delete/disband group (admin only)
+ * @access  Private
+ */
+router.delete('/:groupId', roommateGroup_controller_1.default.deleteGroup);
 exports.default = router;
 //# sourceMappingURL=roommateGroup.routes.js.map

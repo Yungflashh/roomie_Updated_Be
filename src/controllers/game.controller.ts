@@ -85,6 +85,48 @@ class GameController {
   }
 
   /**
+   * Send multiplayer game invitation
+   */
+  async sendMultiplayerInvitation(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId!;
+      const { gameId, invitees } = req.body;
+
+      if (!gameId || !invitees || !Array.isArray(invitees) || invitees.length === 0) {
+        res.status(400).json({
+          success: false,
+          message: 'gameId and invitees array are required',
+        });
+        return;
+      }
+
+      for (const inv of invitees) {
+        if (!inv.userId || !inv.matchId) {
+          res.status(400).json({
+            success: false,
+            message: 'Each invitee must have userId and matchId',
+          });
+          return;
+        }
+      }
+
+      const session = await gameService.sendMultiplayerInvitation(gameId, userId, invitees);
+
+      res.status(201).json({
+        success: true,
+        message: 'Multiplayer game invitation sent',
+        data: { session },
+      });
+    } catch (error: any) {
+      logger.error('Send multiplayer invitation error:', error);
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Failed to send multiplayer invitation',
+      });
+    }
+  }
+
+  /**
    * Respond to game invitation
    */
   async respondToInvitation(req: AuthRequest, res: Response): Promise<void> {

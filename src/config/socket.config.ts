@@ -82,11 +82,12 @@ export const initializeSocket = (server: any): Server => {
     });
 
     // Handle typing indicators
-    socket.on('typing:start', (data: { matchId: string; receiverId: string }) => {
+    socket.on('typing:start', (data: { matchId: string; receiverId: string; activity?: string }) => {
       emitToUser(data.receiverId, 'typing:start', {
         matchId: data.matchId,
         userId,
         user: socket.data.user,
+        activity: data.activity || 'typing',
       });
     });
 

@@ -118,6 +118,11 @@ const roommateGroupSchema = new mongoose_1.Schema({
         type: Boolean,
         default: true,
     },
+    features: {
+        locationSharing: { type: Boolean, default: false },
+        emergencyAlerts: { type: Boolean, default: true },
+        personalityBoard: { type: Boolean, default: true },
+    },
 }, {
     timestamps: true,
 });
@@ -125,6 +130,9 @@ const roommateGroupSchema = new mongoose_1.Schema({
 roommateGroupSchema.index({ inviteCode: 1 }, { unique: true });
 roommateGroupSchema.index({ 'members.user': 1 });
 roommateGroupSchema.index({ createdBy: 1 });
+// Active group lookups
+roommateGroupSchema.index({ 'members.user': 1, 'members.status': 1, isActive: 1 });
+roommateGroupSchema.index({ isActive: 1 });
 // Virtual: Get active members only
 roommateGroupSchema.virtual('activeMembers').get(function () {
     return this.members.filter(m => m.status === 'active');

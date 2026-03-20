@@ -16,6 +16,18 @@ router.use(auth_middleware_1.authenticate);
  */
 router.get('/', challenge_controller_1.default.getActiveChallenges);
 /**
+ * @route   GET /api/v1/challenges/active
+ * @desc    Get active challenges (alias)
+ * @access  Private
+ */
+router.get('/active', challenge_controller_1.default.getActiveChallenges);
+/**
+ * @route   GET /api/v1/challenges/leaderboard
+ * @desc    Get global leaderboard
+ * @access  Private
+ */
+router.get('/leaderboard', challenge_controller_1.default.getGlobalLeaderboard);
+/**
  * @route   GET /api/v1/challenges/my-challenges
  * @desc    Get user's challenges
  * @access  Private
