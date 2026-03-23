@@ -30,6 +30,11 @@ class DiscoveryService {
             _id: { $nin: excludeIds },
             isActive: true,
             blockedUsers: { $ne: currentUserId },
+            // Respect profileVisibility: exclude users who only want matches to see them
+            $or: [
+                { 'privacySettings.profileVisibility': { $ne: 'matches_only' } },
+                { 'privacySettings.profileVisibility': { $exists: false } },
+            ],
         };
         // Location filters
         if (searchFilters.city) {

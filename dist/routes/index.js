@@ -63,6 +63,8 @@ const listingInquiry_routes_1 = __importDefault(require("./listingInquiry.routes
 const rentalAgreement_routes_1 = __importDefault(require("./rentalAgreement.routes"));
 const review_routes_1 = __importDefault(require("./review.routes"));
 const premium_routes_1 = __importDefault(require("./premium.routes"));
+const ai_routes_1 = __importDefault(require("./ai.routes"));
+const clan_routes_1 = __importDefault(require("./clan.routes"));
 // weeklyChallengeRoutes consolidated into challengeRoutes
 // import weeklyChallengeRoutes from './weeklyChallenge.routes';
 const router = (0, express_1.Router)();
@@ -93,6 +95,8 @@ router.use('/listing-inquiries', listingInquiry_routes_1.default);
 router.use('/rental-agreements', rentalAgreement_routes_1.default);
 router.use('/reviews', review_routes_1.default);
 router.use('/premium', premium_routes_1.default);
+router.use('/ai', ai_routes_1.default);
+router.use('/clans', clan_routes_1.default);
 // router.use('/challenges', weeklyChallengeRoutes);
 // Paystack webhook (no auth — verified by signature)
 router.post('/paystack/webhook', async (req, res) => {

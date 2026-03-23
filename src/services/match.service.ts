@@ -43,15 +43,20 @@ class MatchService {
     ];
 
     const potentialMatches = await User.find({
-      _id: { 
+      _id: {
         $ne: userId,
         $nin: interactedUserIds,
       },
       isActive: true,
       blockedUsers: { $ne: userId },
+      // Respect profileVisibility: exclude users who only want matches to see them
+      $or: [
+        { 'privacySettings.profileVisibility': { $ne: 'matches_only' } },
+        { 'privacySettings.profileVisibility': { $exists: false } },
+      ],
     })
     .select(
-      'firstName lastName profilePhoto photos bio occupation ' +
+      'firstName lastName profilePhoto photos bio occupation gender dateOfBirth ' +
       'location preferences lifestyle interests verified subscription metadata'
     )
     .limit(limit * 2)
@@ -85,6 +90,8 @@ class MatchService {
             photos: user.photos || [],
             bio: user.bio,
             occupation: user.occupation,
+            gender: (user as any).gender,
+            age: (user as any).dateOfBirth ? Math.floor((Date.now() - new Date((user as any).dateOfBirth).getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : undefined,
             location: user.location,
             preferences: user.preferences,
             lifestyle: user.lifestyle,

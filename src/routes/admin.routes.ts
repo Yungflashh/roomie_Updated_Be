@@ -402,4 +402,93 @@ router.get('/confessions/stats', adminController.getConfessionStats);
 router.post('/confessions/:confessionId/hide', adminController.hideConfession);
 router.delete('/confessions/:confessionId', adminController.adminDeleteConfession);
 
+// Clan admin routes
+router.get('/clans', async (req, res) => {
+  try {
+    const { Clan } = await import('../models');
+    const { page = 1, limit = 20, search } = req.query;
+    const query: any = {};
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { tag: { $regex: search, $options: 'i' } },
+      ];
+    }
+    const clans = await Clan.find(query)
+      .populate('leader', 'firstName lastName email profilePhoto')
+      .sort({ totalPoints: -1 })
+      .skip((Number(page) - 1) * Number(limit))
+      .limit(Number(limit));
+    const total = await Clan.countDocuments(query);
+    res.json({ success: true, data: { clans, pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / Number(limit)) } } });
+  } catch (error: any) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+router.get('/clans/:clanId', async (req, res) => {
+  try {
+    const { Clan } = await import('../models');
+    const clan = await Clan.findById(req.params.clanId)
+      .populate('leader', 'firstName lastName email profilePhoto')
+      .populate('coLeaders', 'firstName lastName email profilePhoto')
+      .populate('members.user', 'firstName lastName email profilePhoto');
+    if (!clan) { res.status(404).json({ success: false, message: 'Clan not found' }); return; }
+    res.json({ success: true, data: clan });
+  } catch (error: any) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+router.delete('/clans/:clanId', async (req, res) => {
+  try {
+    const { Clan, ClanWar } = await import('../models');
+    const clan = await Clan.findById(req.params.clanId);
+    if (!clan) { res.status(404).json({ success: false, message: 'Clan not found' }); return; }
+    await ClanWar.updateMany(
+      { $or: [{ challenger: req.params.clanId }, { defender: req.params.clanId }], status: { $in: ['pending', 'accepted', 'in_progress'] } },
+      { $set: { status: 'expired' } }
+    );
+    await Clan.findByIdAndDelete(req.params.clanId);
+    res.json({ success: true, message: `Clan ${clan.name} [${clan.tag}] disbanded by admin` });
+  } catch (error: any) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+// Grant points/treasury to a clan (admin)
+router.post('/clans/:clanId/grant', async (req, res) => {
+  try {
+    const { Clan } = await import('../models');
+    const { totalPoints, treasury, level } = req.body;
+    const clan = await Clan.findById(req.params.clanId);
+    if (!clan) { res.status(404).json({ success: false, message: 'Clan not found' }); return; }
+
+    if (totalPoints) {
+      clan.totalPoints += totalPoints;
+      clan.weeklyPoints += totalPoints;
+      clan.monthlyPoints += totalPoints;
+    }
+    if (treasury) clan.treasury = (clan.treasury || 0) + treasury;
+    if (level) {
+      clan.level = level;
+      clan.maxMembers = 10 + (level - 1) * 5;
+    }
+
+    await clan.save();
+    res.json({ success: true, data: { name: clan.name, tag: clan.tag, totalPoints: clan.totalPoints, treasury: clan.treasury, level: clan.level } });
+  } catch (error: any) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+router.get('/clan-wars', async (req, res) => {
+  try {
+    const { ClanWar } = await import('../models');
+    const { page = 1, limit = 20, status } = req.query;
+    const query: any = {};
+    if (status && status !== 'all') query.status = status;
+    const wars = await ClanWar.find(query)
+      .populate('challenger', 'name tag emoji')
+      .populate('defender', 'name tag emoji')
+      .sort({ createdAt: -1 })
+      .skip((Number(page) - 1) * Number(limit))
+      .limit(Number(limit));
+    const total = await ClanWar.countDocuments(query);
+    res.json({ success: true, data: { wars, pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / Number(limit)) } } });
+  } catch (error: any) { res.status(500).json({ success: false, message: error.message }); }
+});
+
 export default router;

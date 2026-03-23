@@ -454,5 +454,82 @@ router.get('/confessions', admin_controller_1.default.getAdminConfessions);
 router.get('/confessions/stats', admin_controller_1.default.getConfessionStats);
 router.post('/confessions/:confessionId/hide', admin_controller_1.default.hideConfession);
 router.delete('/confessions/:confessionId', admin_controller_1.default.adminDeleteConfession);
+// Clan admin routes
+router.get('/clans', async (req, res) => {
+    try {
+        const { Clan } = await Promise.resolve().then(() => __importStar(require('../models')));
+        const { page = 1, limit = 20, search } = req.query;
+        const query = {};
+        if (search) {
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { tag: { $regex: search, $options: 'i' } },
+            ];
+        }
+        const clans = await Clan.find(query)
+            .populate('leader', 'firstName lastName email profilePhoto')
+            .sort({ totalPoints: -1 })
+            .skip((Number(page) - 1) * Number(limit))
+            .limit(Number(limit));
+        const total = await Clan.countDocuments(query);
+        res.json({ success: true, data: { clans, pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / Number(limit)) } } });
+    }
+    catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+router.get('/clans/:clanId', async (req, res) => {
+    try {
+        const { Clan } = await Promise.resolve().then(() => __importStar(require('../models')));
+        const clan = await Clan.findById(req.params.clanId)
+            .populate('leader', 'firstName lastName email profilePhoto')
+            .populate('coLeaders', 'firstName lastName email profilePhoto')
+            .populate('members.user', 'firstName lastName email profilePhoto');
+        if (!clan) {
+            res.status(404).json({ success: false, message: 'Clan not found' });
+            return;
+        }
+        res.json({ success: true, data: clan });
+    }
+    catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+router.delete('/clans/:clanId', async (req, res) => {
+    try {
+        const { Clan, ClanWar } = await Promise.resolve().then(() => __importStar(require('../models')));
+        const clan = await Clan.findById(req.params.clanId);
+        if (!clan) {
+            res.status(404).json({ success: false, message: 'Clan not found' });
+            return;
+        }
+        await ClanWar.updateMany({ $or: [{ challenger: req.params.clanId }, { defender: req.params.clanId }], status: { $in: ['pending', 'accepted', 'in_progress'] } }, { $set: { status: 'expired' } });
+        await Clan.findByIdAndDelete(req.params.clanId);
+        res.json({ success: true, message: `Clan ${clan.name} [${clan.tag}] disbanded by admin` });
+    }
+    catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+router.get('/clan-wars', async (req, res) => {
+    try {
+        const { ClanWar } = await Promise.resolve().then(() => __importStar(require('../models')));
+        const { page = 1, limit = 20, status } = req.query;
+        const query = {};
+        if (status && status !== 'all')
+            query.status = status;
+        const wars = await ClanWar.find(query)
+            .populate('challenger', 'name tag emoji')
+            .populate('defender', 'name tag emoji')
+            .sort({ createdAt: -1 })
+            .skip((Number(page) - 1) * Number(limit))
+            .limit(Number(limit));
+        const total = await ClanWar.countDocuments(query);
+        res.json({ success: true, data: { wars, pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / Number(limit)) } } });
+    }
+    catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
 exports.default = router;
 //# sourceMappingURL=admin.routes.js.map

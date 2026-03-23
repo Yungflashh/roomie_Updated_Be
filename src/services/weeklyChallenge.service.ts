@@ -135,6 +135,12 @@ class WeeklyChallengeService {
             data: { challengeId: challenge._id.toString() },
           });
         } catch {}
+
+        // Track clan points for challenge completion
+        try {
+          const clanService = (await import('./clan.service')).default;
+          await clanService.trackMemberActivity(userId, 'challenge_complete', 15);
+        } catch (e) { logger.warn('Clan tracking error:', e); }
       }
 
       await challenge.save();

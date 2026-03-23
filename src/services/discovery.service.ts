@@ -95,6 +95,11 @@ class DiscoveryService {
       _id: { $nin: excludeIds },
       isActive: true,
       blockedUsers: { $ne: currentUserId },
+      // Respect profileVisibility: exclude users who only want matches to see them
+      $or: [
+        { 'privacySettings.profileVisibility': { $ne: 'matches_only' } },
+        { 'privacySettings.profileVisibility': { $exists: false } },
+      ],
     };
 
     // Location filters
@@ -242,9 +247,33 @@ class DiscoveryService {
       User.countDocuments(query),
     ]);
 
+    // Fetch clan info for all users in batch
+    let clanMap: Record<string, { name: string; tag: string; emoji: string; color: string; level: number; badges: string[] }> = {};
+    try {
+      const { Clan } = await import('../models/Clan');
+      const userIds = users.map(u => u._id);
+      const clans = await Clan.find({ 'members.user': { $in: userIds } })
+        .select('name tag emoji color level badges members.user')
+        .lean();
+      for (const clan of clans) {
+        for (const member of clan.members || []) {
+          clanMap[member.user.toString()] = {
+            name: clan.name,
+            tag: clan.tag,
+            emoji: clan.emoji,
+            color: clan.color,
+            level: clan.level,
+            badges: clan.badges || [],
+          };
+        }
+      }
+    } catch (e) {
+      // Clan lookup is best-effort
+    }
+
     // Transform users and calculate age
     const transformedUsers = users.map(user => {
-      const age = user.dateOfBirth 
+      const age = user.dateOfBirth
         ? Math.floor((Date.now() - new Date(user.dateOfBirth).getTime()) / (365.25 * 24 * 60 * 60 * 1000))
         : null;
 
@@ -265,11 +294,20 @@ class DiscoveryService {
         subscription: user.subscription,
         gender: user.gender,
         age,
+        clan: clanMap[user._id.toString()] || null,
       };
     });
 
+    // Soft boost: clan members with badges get moved slightly higher (within the page)
+    const boostedUsers = [...transformedUsers].sort((a, b) => {
+      const aHasClan = a.clan ? 1 : 0;
+      const bHasClan = b.clan ? 1 : 0;
+      if (aHasClan !== bHasClan) return bHasClan - aHasClan; // Clan users first
+      return 0; // Preserve original order otherwise
+    });
+
     return {
-      users: transformedUsers,
+      users: boostedUsers,
       pagination: {
         page,
         limit,

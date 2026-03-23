@@ -27,7 +27,7 @@ declare class MessageService {
         pagination: any;
     }>;
     /**
-     * Mark messages as read
+     * Mark messages as read (respects readReceipts privacy setting)
      */
     markAsRead(matchId: string, userId: string): Promise<void>;
     /**

@@ -55,7 +55,24 @@ class UserService {
       emailVerified: user.emailVerified,
       subscription: (user as any).subscription,
       createdAt: (user as any).createdAt,
+      clan: await this.getUserClanInfo(userId),
     };
+  }
+
+  /**
+   * Get clan info for a user (lightweight)
+   */
+  async getUserClanInfo(userId: string): Promise<any> {
+    try {
+      const { Clan } = await import('../models/Clan');
+      const clan = await Clan.findOne({ 'members.user': userId })
+        .select('name tag emoji color level badges')
+        .lean();
+      if (!clan) return null;
+      return { name: clan.name, tag: clan.tag, emoji: clan.emoji, color: clan.color, level: clan.level, badges: clan.badges || [] };
+    } catch {
+      return null;
+    }
   }
   /**
    * Update user profile

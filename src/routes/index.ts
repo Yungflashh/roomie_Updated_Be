@@ -25,6 +25,8 @@ import listingInquiryRoutes from './listingInquiry.routes';
 import rentalAgreementRoutes from './rentalAgreement.routes';
 import reviewRoutes from './review.routes';
 import premiumRoutes from './premium.routes';
+import aiRoutes from './ai.routes';
+import clanRoutes from './clan.routes';
 // weeklyChallengeRoutes consolidated into challengeRoutes
 // import weeklyChallengeRoutes from './weeklyChallenge.routes';
 
@@ -62,6 +64,8 @@ router.use('/listing-inquiries', listingInquiryRoutes);
 router.use('/rental-agreements', rentalAgreementRoutes);
 router.use('/reviews', reviewRoutes);
 router.use('/premium', premiumRoutes);
+router.use('/ai', aiRoutes);
+router.use('/clans', clanRoutes);
 // router.use('/challenges', weeklyChallengeRoutes);
 
 

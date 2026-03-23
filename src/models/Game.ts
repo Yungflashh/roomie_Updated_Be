@@ -174,6 +174,24 @@ export interface IGameSessionDocument extends Document {
       category: string;
       difficulty: string;
     }>;
+    // Reaction Race
+    reactionRounds?: Array<{
+      round: number;
+      delay: number;
+      isFake: boolean;
+    }>;
+    // Riddle Rush
+    riddles?: Array<{
+      riddle: string;
+      options: string[];
+      correctAnswer: string;
+    }>;
+    // Word Chain
+    wordChain?: {
+      category: string;
+      startWord: string;
+      examples: string[];
+    };
     // Common fields
     currentRound?: number;
     totalRounds?: number;
@@ -324,6 +342,24 @@ const gameSessionSchema = new Schema<IGameSessionDocument>(
         category: String,
         difficulty: String,
       }],
+      // Reaction Race
+      reactionRounds: [{
+        round: Number,
+        delay: Number,
+        isFake: Boolean,
+      }],
+      // Riddle Rush
+      riddles: [{
+        riddle: String,
+        options: [String],
+        correctAnswer: String,
+      }],
+      // Word Chain
+      wordChain: {
+        category: String,
+        startWord: String,
+        examples: [String],
+      },
       // Common fields
       currentRound: Number,
       totalRounds: Number,

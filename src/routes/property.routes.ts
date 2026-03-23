@@ -71,7 +71,7 @@ router.get('/liked', propertyController.getLikedProperties);
  * @desc    Get property details
  * @access  Private
  */
-router.get('/:propertyId', requireVerification, propertyController.getProperty);
+router.get('/:propertyId', propertyController.getProperty);
 
 /**
  * @route   PUT /api/v1/properties/:propertyId

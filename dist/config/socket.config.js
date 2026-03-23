@@ -32,7 +32,7 @@ const initializeSocket = (server) => {
                 return next(new Error('Authentication required'));
             }
             const decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET);
-            const user = await models_1.User.findById(decoded.userId).select('_id firstName lastName profilePhoto');
+            const user = await models_1.User.findById(decoded.userId).select('_id firstName lastName profilePhoto privacySettings');
             if (!user) {
                 return next(new Error('User not found'));
             }
@@ -41,6 +41,7 @@ const initializeSocket = (server) => {
                 firstName: user.firstName,
                 lastName: user.lastName,
                 profilePhoto: user.profilePhoto,
+                privacySettings: user.privacySettings,
             };
             next();
         }
@@ -95,13 +96,27 @@ const initializeSocket = (server) => {
                 readAt: new Date().toISOString(),
             });
         });
-        // Handle presence check
-        socket.on('presence:check', (userIds) => {
-            const statuses = userIds.map((id) => ({
-                userId: id,
-                isOnline: onlineUsers.has(id) && onlineUsers.get(id).size > 0,
-            }));
-            socket.emit('presence:status', statuses);
+        // Handle presence check (respects privacy settings)
+        socket.on('presence:check', async (userIds) => {
+            try {
+                const users = await models_1.User.find({ _id: { $in: userIds } }).select('privacySettings lastSeen').lean();
+                const userMap = new Map(users.map(u => [u._id.toString(), u]));
+                const statuses = userIds.map((id) => {
+                    const u = userMap.get(id);
+                    const showOnline = u?.privacySettings?.showOnlineStatus !== false;
+                    const showLastSeen = u?.privacySettings?.showLastSeen !== false;
+                    return {
+                        userId: id,
+                        isOnline: showOnline ? (onlineUsers.has(id) && onlineUsers.get(id).size > 0) : false,
+                        lastSeen: showLastSeen ? u?.lastSeen : null,
+                    };
+                });
+                socket.emit('presence:status', statuses);
+            }
+            catch {
+                const statuses = userIds.map(id => ({ userId: id, isOnline: false, lastSeen: null }));
+                socket.emit('presence:status', statuses);
+            }
         });
         // Handle presence ping
         socket.on('presence:ping', () => {
@@ -291,7 +306,7 @@ const initializeSocket = (server) => {
                     }
                 }
             }
-            // Update last seen
+            // Always update lastSeen internally (for the system), privacy controls what's exposed to others
             models_1.User.findByIdAndUpdate(userId, { lastSeen: new Date() }).catch((err) => logger_1.default.error('Failed to update last seen:', err));
         });
     });
@@ -299,13 +314,22 @@ const initializeSocket = (server) => {
     return io;
 };
 exports.initializeSocket = initializeSocket;
-// Broadcast presence update to relevant users
-const broadcastPresenceUpdate = (userId, isOnline) => {
-    io?.emit('presence:update', {
-        userId,
-        isOnline,
-        lastSeen: new Date().toISOString(),
-    });
+// Broadcast presence update to relevant users (respects privacy settings)
+const broadcastPresenceUpdate = async (userId, isOnline) => {
+    try {
+        const user = await models_1.User.findById(userId).select('privacySettings').lean();
+        const showOnline = user?.privacySettings?.showOnlineStatus !== false;
+        const showLastSeen = user?.privacySettings?.showLastSeen !== false;
+        io?.emit('presence:update', {
+            userId,
+            isOnline: showOnline ? isOnline : false,
+            lastSeen: showLastSeen ? new Date().toISOString() : null,
+        });
+    }
+    catch {
+        // Fallback: still broadcast but as offline
+        io?.emit('presence:update', { userId, isOnline: false, lastSeen: null });
+    }
 };
 // Emit to specific user's room
 const emitToUser = (userId, event, data) => {

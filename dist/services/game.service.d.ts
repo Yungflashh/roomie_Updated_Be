@@ -66,6 +66,9 @@ declare class GameService {
     private generatePatternMasterData;
     private generateColorChallengeData;
     private generateQuickDrawData;
+    private generateReactionRaceData;
+    private generateRiddleRushData;
+    private generateWordChainData;
     private scrambleWord;
     private generateMathQuestion;
 }

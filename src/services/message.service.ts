@@ -1,5 +1,5 @@
 // src/services/message.service.ts
-import { Message, Match, IMessageDocument } from '../models';
+import { Message, Match, User, IMessageDocument } from '../models';
 import { emitNewMessage, emitUnreadUpdate, emitToUser } from '../config/socket.config';
 import notificationService from './notification.service';
 import weeklyChallengeService from './weeklyChallenge.service';
@@ -162,9 +162,26 @@ class MessageService {
   }
 
   /**
-   * Mark messages as read
+   * Mark messages as read (respects readReceipts privacy setting)
    */
   async markAsRead(matchId: string, userId: string): Promise<void> {
+    // Check if user has read receipts enabled
+    const user = await User.findById(userId).select('privacySettings').lean();
+    const readReceiptsEnabled = user?.privacySettings?.readReceipts !== false;
+
+    if (!readReceiptsEnabled) {
+      // Still clear unread count locally so the user's UI is clean,
+      // but don't mark messages as "read" (sender won't see read status)
+      const match = await Match.findById(matchId);
+      if (match) {
+        const isUser1 = match.user1.toString() === userId;
+        const unreadField = isUser1 ? 'unreadCount.user1' : 'unreadCount.user2';
+        await Match.findByIdAndUpdate(matchId, { [unreadField]: 0 });
+      }
+      logger.info(`Read receipts disabled for user ${userId}, skipping read marks for match ${matchId}`);
+      return;
+    }
+
     await Message.updateMany(
       {
         match: matchId,
@@ -181,7 +198,7 @@ class MessageService {
     if (match) {
       const isUser1 = match.user1.toString() === userId;
       const unreadField = isUser1 ? 'unreadCount.user1' : 'unreadCount.user2';
-      
+
       await Match.findByIdAndUpdate(matchId, {
         [unreadField]: 0,
       });

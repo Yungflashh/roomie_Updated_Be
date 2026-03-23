@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -288,7 +321,16 @@ class GameService {
         if (!session?.gameData)
             return 'unknown';
         // Check for specific game data structures
-        if (session.gameData.colorChallenges && session.gameData.colorChallenges.length > 0) {
+        if (session.gameData.reactionRounds && session.gameData.reactionRounds.length > 0) {
+            return 'reaction_race';
+        }
+        else if (session.gameData.riddles && session.gameData.riddles.length > 0) {
+            return 'riddle_rush';
+        }
+        else if (session.gameData.wordChain) {
+            return 'word_chain';
+        }
+        else if (session.gameData.colorChallenges && session.gameData.colorChallenges.length > 0) {
             return 'color_challenge';
         }
         else if (session.gameData.patterns && session.gameData.patterns.length > 0) {
@@ -898,8 +940,8 @@ class GameService {
                     });
                     continue;
                 }
-                const userAnswer = ans.answer.trim().toUpperCase();
-                const correctAnswer = challenge.answer.trim().toUpperCase();
+                const userAnswer = (ans.answer || '').trim().toUpperCase();
+                const correctAnswer = (challenge.answer || '').trim().toUpperCase();
                 const correct = userAnswer === correctAnswer;
                 let points = 0;
                 if (correct) {
@@ -942,8 +984,8 @@ class GameService {
                     });
                     continue;
                 }
-                const userAnswer = ans.answer.trim().toUpperCase();
-                const correctAnswer = word.answer.trim().toUpperCase();
+                const userAnswer = (ans.answer || '').trim().toUpperCase();
+                const correctAnswer = (word.answer || '').trim().toUpperCase();
                 const correct = userAnswer === correctAnswer;
                 let points = 0;
                 if (correct) {
@@ -1071,7 +1113,7 @@ class GameService {
                     });
                     continue;
                 }
-                const correct = ans.answer.toUpperCase() === challenge.correctAnswer.toUpperCase();
+                const correct = (ans.answer || '').toUpperCase() === (challenge.correctAnswer || '').toUpperCase();
                 let points = 0;
                 if (correct) {
                     // Color challenge rewards speed heavily
@@ -1091,6 +1133,56 @@ class GameService {
                     correct,
                     timeSpent: ans.timeSpent,
                 });
+            }
+        }
+        else if (gameType === 'reaction_race') {
+            // Reaction Race: lower reaction time = more points. Fake-out taps = penalty
+            for (const ans of answers) {
+                const round = session.gameData?.reactionRounds?.[ans.questionIndex];
+                let points = 0;
+                let correct = false;
+                if (round?.isFake) {
+                    // Fake round: tapping = wrong, not tapping = correct
+                    correct = (ans.answer || '') === 'HELD';
+                    points = correct ? 100 : -50;
+                }
+                else {
+                    // Real round: faster = more points
+                    correct = (ans.answer || '') === 'TAPPED';
+                    if (correct && ans.timeSpent) {
+                        points = Math.max(10, Math.floor(300 - ans.timeSpent * 500));
+                    }
+                }
+                totalScore += Math.max(0, points);
+                results.push({ questionIndex: ans.questionIndex, correct, correctAnswer: round?.isFake ? 'HOLD' : 'TAP', points: Math.max(0, points) });
+                playerAnswers.push({ questionIndex: ans.questionIndex, answer: ans.answer, correct, timeSpent: ans.timeSpent });
+            }
+        }
+        else if (gameType === 'riddle_rush') {
+            // Riddle Rush: correct answer + speed bonus
+            for (const ans of answers) {
+                const riddle = session.gameData?.riddles?.[ans.questionIndex];
+                if (!riddle)
+                    continue;
+                const correct = ans.answer?.toUpperCase() === riddle.correctAnswer.toUpperCase();
+                let points = 0;
+                if (correct) {
+                    const timeBonus = Math.max(0, 150 - ans.timeSpent * 10);
+                    points = 100 + Math.floor(timeBonus);
+                }
+                totalScore += points;
+                results.push({ questionIndex: ans.questionIndex, correct, correctAnswer: riddle.correctAnswer, points });
+                playerAnswers.push({ questionIndex: ans.questionIndex, answer: ans.answer, correct, timeSpent: ans.timeSpent });
+            }
+        }
+        else if (gameType === 'word_chain') {
+            // Word Chain: client-calculated (valid words checked on frontend)
+            for (const ans of answers) {
+                const correct = ans.correct ?? false;
+                const points = ans.points ?? 0;
+                totalScore += points;
+                results.push({ questionIndex: ans.questionIndex, correct, correctAnswer: 'Valid word', points });
+                playerAnswers.push({ questionIndex: ans.questionIndex, answer: ans.answer, correct, timeSpent: ans.timeSpent });
             }
         }
         else if (gameType === 'quick_draw' || gameType === 'memory') {
@@ -1241,6 +1333,14 @@ class GameService {
                     }
                     catch (e) {
                         logger_1.default.warn('Challenge tracking (game_win) error:', e);
+                    }
+                    // Track clan points for game win
+                    try {
+                        const clanService = (await Promise.resolve().then(() => __importStar(require('./clan.service')))).default;
+                        await clanService.trackMemberActivity(winnerUserId.toString(), 'game_win', 10);
+                    }
+                    catch (e) {
+                        logger_1.default.warn('Clan tracking error:', e);
                     }
                 }
                 catch (e) {
@@ -1433,6 +1533,12 @@ class GameService {
                 return this.generateColorChallengeData();
             case 'Quick Draw':
                 return this.generateQuickDrawData();
+            case 'Reaction Race':
+                return this.generateReactionRaceData();
+            case 'Riddle Rush':
+                return this.generateRiddleRushData();
+            case 'Word Chain':
+                return this.generateWordChainData();
             default:
                 logger_1.default.warn(`Unknown game: ${gameName}, returning empty data`);
                 return {};
@@ -1574,6 +1680,73 @@ class GameService {
             totalRounds: 5,
             currentRound: 0,
             timeLimit: 30, // 30 seconds per drawing
+        };
+    }
+    generateReactionRaceData() {
+        // Generate random delays for each round (1.5s - 5s wait before "GO!")
+        const rounds = Array.from({ length: 10 }, (_, i) => ({
+            round: i + 1,
+            delay: Math.floor(1500 + Math.random() * 3500),
+            isFake: Math.random() < 0.2, // 20% chance of fake-out (screen flashes but shouldn't tap)
+        }));
+        return {
+            reactionRounds: rounds,
+            totalRounds: 10,
+            currentRound: 0,
+            timeLimit: 60,
+        };
+    }
+    generateRiddleRushData() {
+        const allRiddles = [
+            { riddle: 'I have cities but no houses, forests but no trees, water but no fish. What am I?', answer: 'MAP', options: ['MAP', 'GLOBE', 'BOOK', 'DREAM'] },
+            { riddle: 'What has hands but can\'t clap?', answer: 'CLOCK', options: ['CLOCK', 'TREE', 'ROBOT', 'STATUE'] },
+            { riddle: 'What has a head and tail but no body?', answer: 'COIN', options: ['SNAKE', 'COIN', 'ARROW', 'COMET'] },
+            { riddle: 'I speak without a mouth and hear without ears. I have no body but come alive with wind. What am I?', answer: 'ECHO', options: ['ECHO', 'GHOST', 'SHADOW', 'MUSIC'] },
+            { riddle: 'What gets wetter the more it dries?', answer: 'TOWEL', options: ['SPONGE', 'TOWEL', 'RAIN', 'SOAP'] },
+            { riddle: 'What can travel around the world while staying in a corner?', answer: 'STAMP', options: ['STAMP', 'SPIDER', 'SHADOW', 'WIFI'] },
+            { riddle: 'I have keys but no locks. I have space but no room. You can enter but can\'t go inside. What am I?', answer: 'KEYBOARD', options: ['KEYBOARD', 'PIANO', 'HOUSE', 'CAR'] },
+            { riddle: 'What has many teeth but cannot bite?', answer: 'COMB', options: ['SAW', 'COMB', 'ZIPPER', 'GEAR'] },
+            { riddle: 'What is always in front of you but can\'t be seen?', answer: 'FUTURE', options: ['AIR', 'FUTURE', 'NOSE', 'THOUGHTS'] },
+            { riddle: 'I\'m tall when I\'m young and short when I\'m old. What am I?', answer: 'CANDLE', options: ['CANDLE', 'TREE', 'PERSON', 'SHADOW'] },
+            { riddle: 'What has one eye but can\'t see?', answer: 'NEEDLE', options: ['NEEDLE', 'CYCLOPS', 'CAMERA', 'POTATO'] },
+            { riddle: 'What can you break even if you never pick it up or touch it?', answer: 'PROMISE', options: ['PROMISE', 'HEART', 'SILENCE', 'RECORD'] },
+            { riddle: 'What building has the most stories?', answer: 'LIBRARY', options: ['SKYSCRAPER', 'LIBRARY', 'SCHOOL', 'HOSPITAL'] },
+            { riddle: 'What has legs but doesn\'t walk?', answer: 'TABLE', options: ['TABLE', 'CHAIR', 'BED', 'STOOL'] },
+            { riddle: 'What word becomes shorter when you add two letters to it?', answer: 'SHORT', options: ['SHORT', 'SMALL', 'TINY', 'BRIEF'] },
+            { riddle: 'What has a neck but no head?', answer: 'BOTTLE', options: ['GUITAR', 'BOTTLE', 'SHIRT', 'SWAN'] },
+            { riddle: 'I follow you everywhere but you can\'t catch me. What am I?', answer: 'SHADOW', options: ['SHADOW', 'TIME', 'WIND', 'MEMORY'] },
+            { riddle: 'What starts with "e" and ends with "e" but only has one letter?', answer: 'ENVELOPE', options: ['ENVELOPE', 'EYE', 'EDGE', 'EAGLE'] },
+        ];
+        const shuffled = [...allRiddles].sort(() => Math.random() - 0.5);
+        const selected = shuffled.slice(0, 8);
+        return {
+            riddles: selected.map(r => ({
+                riddle: r.riddle,
+                options: r.options.sort(() => Math.random() - 0.5),
+                correctAnswer: r.answer,
+            })),
+            totalRounds: 8,
+            currentRound: 0,
+            timeLimit: 15,
+        };
+    }
+    generateWordChainData() {
+        const categories = [
+            { name: 'Animals', startWord: 'CAT', examples: ['CAT', 'TIGER', 'RABBIT', 'TURTLE', 'EAGLE'] },
+            { name: 'Countries', startWord: 'NIGERIA', examples: ['NIGERIA', 'ARGENTINA', 'AUSTRALIA', 'ANGOLA', 'ALGERIA'] },
+            { name: 'Foods', startWord: 'RICE', examples: ['RICE', 'EGG', 'GRAPE', 'EGGPLANT', 'TOMATO'] },
+            { name: 'Cities', startWord: 'LAGOS', examples: ['LAGOS', 'SEATTLE', 'EDMONTON', 'NAIROBI', 'ISTANBUL'] },
+        ];
+        const category = categories[Math.floor(Math.random() * categories.length)];
+        return {
+            wordChain: {
+                category: category.name,
+                startWord: category.startWord,
+                examples: category.examples,
+            },
+            totalRounds: 10,
+            currentRound: 0,
+            timeLimit: 10,
         };
     }
     // ============================================

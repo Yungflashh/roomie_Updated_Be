@@ -236,6 +236,24 @@ const gameSessionSchema = new mongoose_1.Schema({
                 category: String,
                 difficulty: String,
             }],
+        // Reaction Race
+        reactionRounds: [{
+                round: Number,
+                delay: Number,
+                isFake: Boolean,
+            }],
+        // Riddle Rush
+        riddles: [{
+                riddle: String,
+                options: [String],
+                correctAnswer: String,
+            }],
+        // Word Chain
+        wordChain: {
+            category: String,
+            startWord: String,
+            examples: [String],
+        },
         // Common fields
         currentRound: Number,
         totalRounds: Number,

@@ -7,7 +7,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const property_controller_1 = __importDefault(require("../controllers/property.controller"));
 const auth_middleware_1 = require("../middleware/auth.middleware");
-const verification_middleware_1 = require("../middleware/verification.middleware");
 const validation_middleware_1 = require("../middleware/validation.middleware");
 const express_validator_1 = require("express-validator");
 const router = (0, express_1.Router)();
@@ -68,7 +67,7 @@ router.get('/liked', property_controller_1.default.getLikedProperties);
  * @desc    Get property details
  * @access  Private
  */
-router.get('/:propertyId', verification_middleware_1.requireVerification, property_controller_1.default.getProperty);
+router.get('/:propertyId', property_controller_1.default.getProperty);
 /**
  * @route   PUT /api/v1/properties/:propertyId
  * @desc    Update property

@@ -10,6 +10,7 @@ import { initializeSocket } from './config/socket.config';  // <-- Import socket
 import logger from './utils/logger';
 import { MediaHash } from './models';
 import redisClient from './config/redis';
+import { initClanJobs } from './jobs/clanJobs';
 
 const PORT = parseInt(process.env.PORT || '5000', 10);
 
@@ -45,6 +46,9 @@ const startServer = async () => {
 
     // Make io accessible in routes
     app.set('io', io);
+
+    // Initialize cron jobs
+    initClanJobs();
 
     // Start server - USE httpServer.listen, NOT app.listen
     httpServer.listen(PORT, '0.0.0.0', () => {

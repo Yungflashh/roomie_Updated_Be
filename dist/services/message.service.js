@@ -128,9 +128,24 @@ class MessageService {
         };
     }
     /**
-     * Mark messages as read
+     * Mark messages as read (respects readReceipts privacy setting)
      */
     async markAsRead(matchId, userId) {
+        // Check if user has read receipts enabled
+        const user = await models_1.User.findById(userId).select('privacySettings').lean();
+        const readReceiptsEnabled = user?.privacySettings?.readReceipts !== false;
+        if (!readReceiptsEnabled) {
+            // Still clear unread count locally so the user's UI is clean,
+            // but don't mark messages as "read" (sender won't see read status)
+            const match = await models_1.Match.findById(matchId);
+            if (match) {
+                const isUser1 = match.user1.toString() === userId;
+                const unreadField = isUser1 ? 'unreadCount.user1' : 'unreadCount.user2';
+                await models_1.Match.findByIdAndUpdate(matchId, { [unreadField]: 0 });
+            }
+            logger_1.default.info(`Read receipts disabled for user ${userId}, skipping read marks for match ${matchId}`);
+            return;
+        }
         await models_1.Message.updateMany({
             match: matchId,
             receiver: userId,

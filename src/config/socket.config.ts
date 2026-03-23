@@ -33,7 +33,7 @@ export const initializeSocket = (server: any): Server => {
       }
 
       const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
-      const user = await User.findById(decoded.userId).select('_id firstName lastName profilePhoto');
+      const user = await User.findById(decoded.userId).select('_id firstName lastName profilePhoto privacySettings');
 
       if (!user) {
         return next(new Error('User not found'));
@@ -44,6 +44,7 @@ export const initializeSocket = (server: any): Server => {
         firstName: user.firstName,
         lastName: user.lastName,
         profilePhoto: user.profilePhoto,
+        privacySettings: (user as any).privacySettings,
       };
 
       next();
@@ -108,13 +109,27 @@ export const initializeSocket = (server: any): Server => {
       });
     });
 
-    // Handle presence check
-    socket.on('presence:check', (userIds: string[]) => {
-      const statuses = userIds.map((id) => ({
-        userId: id,
-        isOnline: onlineUsers.has(id) && onlineUsers.get(id)!.size > 0,
-      }));
-      socket.emit('presence:status', statuses);
+    // Handle presence check (respects privacy settings)
+    socket.on('presence:check', async (userIds: string[]) => {
+      try {
+        const users = await User.find({ _id: { $in: userIds } }).select('privacySettings lastSeen').lean();
+        const userMap = new Map(users.map(u => [u._id.toString(), u]));
+
+        const statuses = userIds.map((id) => {
+          const u = userMap.get(id);
+          const showOnline = u?.privacySettings?.showOnlineStatus !== false;
+          const showLastSeen = u?.privacySettings?.showLastSeen !== false;
+          return {
+            userId: id,
+            isOnline: showOnline ? (onlineUsers.has(id) && onlineUsers.get(id)!.size > 0) : false,
+            lastSeen: showLastSeen ? u?.lastSeen : null,
+          };
+        });
+        socket.emit('presence:status', statuses);
+      } catch {
+        const statuses = userIds.map(id => ({ userId: id, isOnline: false, lastSeen: null }));
+        socket.emit('presence:status', statuses);
+      }
     });
 
     // Handle presence ping
@@ -336,7 +351,7 @@ export const initializeSocket = (server: any): Server => {
         }
       }
 
-      // Update last seen
+      // Always update lastSeen internally (for the system), privacy controls what's exposed to others
       User.findByIdAndUpdate(userId, { lastSeen: new Date() }).catch((err) =>
         logger.error('Failed to update last seen:', err)
       );
@@ -347,13 +362,22 @@ export const initializeSocket = (server: any): Server => {
   return io;
 };
 
-// Broadcast presence update to relevant users
-const broadcastPresenceUpdate = (userId: string, isOnline: boolean): void => {
-  io?.emit('presence:update', {
-    userId,
-    isOnline,
-    lastSeen: new Date().toISOString(),
-  });
+// Broadcast presence update to relevant users (respects privacy settings)
+const broadcastPresenceUpdate = async (userId: string, isOnline: boolean): Promise<void> => {
+  try {
+    const user = await User.findById(userId).select('privacySettings').lean();
+    const showOnline = user?.privacySettings?.showOnlineStatus !== false;
+    const showLastSeen = user?.privacySettings?.showLastSeen !== false;
+
+    io?.emit('presence:update', {
+      userId,
+      isOnline: showOnline ? isOnline : false,
+      lastSeen: showLastSeen ? new Date().toISOString() : null,
+    });
+  } catch {
+    // Fallback: still broadcast but as offline
+    io?.emit('presence:update', { userId, isOnline: false, lastSeen: null });
+  }
 };
 
 // Emit to specific user's room
@@ -454,6 +478,14 @@ export const emitNewMatch = (user1Id: string, user2Id: string, matchData: any): 
 // Check if user is online
 export const isUserOnline = (userId: string): boolean => {
   return onlineUsers.has(userId) && onlineUsers.get(userId)!.size > 0;
+};
+
+// Emit clan war update to all members of a clan
+export const emitClanWarUpdate = (clanMemberUserIds: string[], event: string, data: any): void => {
+  for (const uid of clanMemberUserIds) {
+    emitToUser(uid, event, data);
+  }
+  logger.info(`Clan war event ${event} emitted to ${clanMemberUserIds.length} members`);
 };
 
 // Get IO instance

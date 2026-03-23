@@ -13,7 +13,6 @@
     "seedGames": "ts-node scripts/seedGames.ts",
     "seedAdmin": "ts-node scripts/createAdmin.ts"
   },
-
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -34,6 +33,7 @@
     "express-session": "^1.18.2",
     "express-validator": "^7.3.1",
     "firebase-admin": "^13.6.0",
+    "groq-sdk": "^1.1.1",
     "helmet": "^8.1.0",
     "imghash": "^1.1.2",
     "ioredis": "^5.8.2",

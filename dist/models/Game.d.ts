@@ -96,6 +96,21 @@ export interface IGameSessionDocument extends Document {
             category: string;
             difficulty: string;
         }>;
+        reactionRounds?: Array<{
+            round: number;
+            delay: number;
+            isFake: boolean;
+        }>;
+        riddles?: Array<{
+            riddle: string;
+            options: string[];
+            correctAnswer: string;
+        }>;
+        wordChain?: {
+            category: string;
+            startWord: string;
+            examples: string[];
+        };
         currentRound?: number;
         totalRounds?: number;
         totalPairs?: number;

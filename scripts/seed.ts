@@ -11,6 +11,7 @@ import { User } from '../src/models/User';
 import { Property } from '../src/models/Property';
 import { Game } from '../src/models/Game';
 import { Challenge } from '../src/models/Challenge';
+import { Clan } from '../src/models/Clan';
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/roomie';
 
@@ -609,6 +610,40 @@ const challengesData = [
   },
 ];
 
+// Clan seed data (references created users by index)
+const clansData = [
+  {
+    name: 'Lagos Hustlers',
+    tag: 'LH',
+    description: 'The hardest working roommates in Lagos. We grind, we vibe, we win.',
+    emoji: '🔥',
+    color: '#ef4444',
+    isOpen: true,
+    leaderIndex: 0, // John Doe
+    memberIndices: [1, 2], // Jane, Mike
+  },
+  {
+    name: 'Island Elite',
+    tag: 'ISLE',
+    description: 'Victoria Island finest. Premium living, premium vibes.',
+    emoji: '👑',
+    color: '#8b5cf6',
+    isOpen: false,
+    leaderIndex: 3, // Sarah
+    memberIndices: [4, 5], // David, Amara
+  },
+  {
+    name: 'Mainland Mavericks',
+    tag: 'MAIN',
+    description: 'Representing the mainland with pride. Ikeja to Surulere, we run it.',
+    emoji: '🛡️',
+    color: '#3b82f6',
+    isOpen: true,
+    leaderIndex: 6, // next user
+    memberIndices: [7],
+  },
+];
+
 async function seedDatabase() {
   try {
     console.log('🌱 Starting database seed...');
@@ -624,6 +659,7 @@ async function seedDatabase() {
     await Property.deleteMany({});
     await Game.deleteMany({});
     await Challenge.deleteMany({});
+    await Clan.deleteMany({});
     console.log('✅ Existing data cleared');
 
     // Hash passwords for users
@@ -660,6 +696,49 @@ async function seedDatabase() {
     const createdChallenges = await Challenge.insertMany(challengesData);
     console.log(`✅ Created ${createdChallenges.length} challenges`);
 
+    // Create clans
+    console.log('⚔️  Creating clans...');
+    let createdClansCount = 0;
+    for (const clanData of clansData) {
+      if (clanData.leaderIndex >= createdUsers.length) continue;
+      const leader = createdUsers[clanData.leaderIndex];
+      const members = [
+        { user: leader._id, role: 'leader' as const, joinedAt: new Date(), pointsContributed: Math.floor(Math.random() * 500) },
+        ...clanData.memberIndices
+          .filter((i) => i < createdUsers.length)
+          .map((i) => ({
+            user: createdUsers[i]._id,
+            role: 'member' as const,
+            joinedAt: new Date(),
+            pointsContributed: Math.floor(Math.random() * 300),
+          })),
+      ];
+
+      const inviteCode = clanData.tag + Math.random().toString(36).substring(2, 6).toUpperCase();
+      await Clan.create({
+        name: clanData.name,
+        tag: clanData.tag,
+        description: clanData.description,
+        emoji: clanData.emoji,
+        color: clanData.color,
+        isOpen: clanData.isOpen,
+        leader: leader._id,
+        members,
+        inviteCode,
+        totalPoints: members.reduce((s, m) => s + m.pointsContributed, 0),
+        weeklyPoints: Math.floor(Math.random() * 200),
+        monthlyPoints: Math.floor(Math.random() * 800),
+        warsWon: Math.floor(Math.random() * 5),
+        warsLost: Math.floor(Math.random() * 3),
+        warsTied: Math.floor(Math.random() * 2),
+        level: 1,
+        maxMembers: 10,
+        chatMatchId: `clan_seed_${clanData.tag.toLowerCase()}`,
+      });
+      createdClansCount++;
+    }
+    console.log(`✅ Created ${createdClansCount} clans`);
+
     // Display created data summary
     console.log('\n📊 Database Seed Summary:');
     console.log('========================');
@@ -667,6 +746,7 @@ async function seedDatabase() {
     console.log(`Properties: ${createdProperties.length}`);
     console.log(`Games: ${createdGames.length}`);
     console.log(`Challenges: ${createdChallenges.length}`);
+    console.log(`Clans: ${createdClansCount}`);
 
     console.log('\n👤 Test User Credentials:');
     console.log('========================');
