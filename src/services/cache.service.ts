@@ -50,10 +50,20 @@ class CacheService {
    */
   async invalidatePattern(pattern: string): Promise<void> {
     try {
-      const keys = await redisClient.keys(pattern);
-      if (keys.length > 0) {
-        await redisClient.del(...keys);
-        logger.info(`Invalidated ${keys.length} cache keys matching: ${pattern}`);
+      let cursor = '0';
+      let totalDeleted = 0;
+      do {
+        const [nextCursor, keys] = await redisClient.scan(
+          cursor, 'MATCH', pattern, 'COUNT', 100
+        );
+        cursor = nextCursor;
+        if (keys.length > 0) {
+          await redisClient.del(...keys);
+          totalDeleted += keys.length;
+        }
+      } while (cursor !== '0');
+      if (totalDeleted > 0) {
+        logger.info(`Invalidated ${totalDeleted} cache keys matching: ${pattern}`);
       }
     } catch (err) {
       logger.warn(`Cache pattern invalidate error for ${pattern}:`, err);

@@ -4,19 +4,28 @@ import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
+import { RedisStore } from 'rate-limit-redis';
 import path from 'path';
 import routes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import logger from './utils/logger';
+import { redisClient } from './config/redis';
+
+// Redis store factory — shares rate limit state across all server instances
+const createRedisStore = (prefix: string) => new RedisStore({
+  sendCommand: (...args: string[]) => (redisClient as any).call(...args),
+  prefix: `rl:${prefix}:`,
+});
 
 // Create rate limiters
 // 1. General API rate limiter - permissive for regular use
 export const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '1000'), // 1000 requests per 15 min
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100000'), // default high for load testing; override in production
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  store: createRedisStore('general'),
   skip: (req) => {
     // Skip rate limiting for real-time/high-frequency endpoints
     const skipPaths = [
@@ -35,6 +44,7 @@ export const authLimiter = rateLimit({
   message: 'Too many authentication attempts, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  store: createRedisStore('auth'),
   skipSuccessfulRequests: true, // Don't count successful logins
 });
 
@@ -45,6 +55,7 @@ export const uploadLimiter = rateLimit({
   message: 'Too many upload requests, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  store: createRedisStore('upload'),
 });
 
 const createApp = (): Application => {
