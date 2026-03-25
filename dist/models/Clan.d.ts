@@ -4,6 +4,24 @@ export interface IClanMember {
     role: 'leader' | 'co-leader' | 'member';
     joinedAt: Date;
     pointsContributed: number;
+    weeklyContribution?: number;
+}
+export interface IClanActivityLog {
+    type: string;
+    userId: mongoose.Types.ObjectId;
+    message: string;
+    points?: number;
+    createdAt: Date;
+}
+export interface IClanStreak {
+    current: number;
+    best: number;
+    lastActiveDate: Date;
+}
+export interface IClanPurchasedUpgrade {
+    itemId: string;
+    purchasedAt: Date;
+    expiresAt?: Date;
 }
 export interface IClanDocument extends Document {
     name: string;
@@ -25,6 +43,18 @@ export interface IClanDocument extends Document {
     isOpen: boolean;
     inviteCode: string;
     badges: string[];
+    activityLog: IClanActivityLog[];
+    treasury: number;
+    streak: IClanStreak;
+    chatMatchId: string;
+    activePerks: string[];
+    purchasedUpgrades: IClanPurchasedUpgrade[];
+    announcement: string;
+    achievements: string[];
+    season: {
+        number: number;
+        points: number;
+    };
     createdAt: Date;
     updatedAt: Date;
 }

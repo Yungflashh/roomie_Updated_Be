@@ -48,6 +48,7 @@ const clanMemberSchema = new mongoose_1.Schema({
     role: { type: String, enum: ['leader', 'co-leader', 'member'], default: 'member' },
     joinedAt: { type: Date, default: Date.now },
     pointsContributed: { type: Number, default: 0 },
+    weeklyContribution: { type: Number, default: 0 },
 }, { _id: false });
 const clanSchema = new mongoose_1.Schema({
     name: { type: String, required: true, trim: true, maxlength: 30 },
@@ -78,6 +79,36 @@ const clanSchema = new mongoose_1.Schema({
     isOpen: { type: Boolean, default: true },
     inviteCode: { type: String, unique: true, default: generateInviteCode },
     badges: [{ type: String }],
+    activityLog: [
+        {
+            type: { type: String, required: true },
+            userId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User' },
+            message: { type: String, required: true },
+            points: { type: Number, default: 0 },
+            createdAt: { type: Date, default: Date.now },
+        },
+    ],
+    treasury: { type: Number, default: 0 },
+    streak: {
+        current: { type: Number, default: 0 },
+        best: { type: Number, default: 0 },
+        lastActiveDate: { type: Date },
+    },
+    chatMatchId: { type: String, unique: true, sparse: true },
+    announcement: { type: String, default: '', maxlength: 500 },
+    achievements: [{ type: String }],
+    season: {
+        number: { type: Number, default: 1 },
+        points: { type: Number, default: 0 },
+    },
+    activePerks: [{ type: String }],
+    purchasedUpgrades: [
+        {
+            itemId: { type: String, required: true },
+            purchasedAt: { type: Date, default: Date.now },
+            expiresAt: { type: Date },
+        },
+    ],
 }, { timestamps: true });
 clanSchema.index({ name: 1 });
 clanSchema.index({ tag: 1 }, { unique: true });

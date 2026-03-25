@@ -511,6 +511,34 @@ router.delete('/clans/:clanId', async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 });
+// Grant points/treasury to a clan (admin)
+router.post('/clans/:clanId/grant', async (req, res) => {
+    try {
+        const { Clan } = await Promise.resolve().then(() => __importStar(require('../models')));
+        const { totalPoints, treasury, level } = req.body;
+        const clan = await Clan.findById(req.params.clanId);
+        if (!clan) {
+            res.status(404).json({ success: false, message: 'Clan not found' });
+            return;
+        }
+        if (totalPoints) {
+            clan.totalPoints += totalPoints;
+            clan.weeklyPoints += totalPoints;
+            clan.monthlyPoints += totalPoints;
+        }
+        if (treasury)
+            clan.treasury = (clan.treasury || 0) + treasury;
+        if (level) {
+            clan.level = level;
+            clan.maxMembers = 10 + (level - 1) * 5;
+        }
+        await clan.save();
+        res.json({ success: true, data: { name: clan.name, tag: clan.tag, totalPoints: clan.totalPoints, treasury: clan.treasury, level: clan.level } });
+    }
+    catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
 router.get('/clan-wars', async (req, res) => {
     try {
         const { ClanWar } = await Promise.resolve().then(() => __importStar(require('../models')));

@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -264,6 +297,300 @@ router.post('/:clanId/promote', async (req, res) => {
     catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to promote member';
         const status = message.includes('Only') ? 403 : 500;
+        res.status(status).json({ success: false, message });
+    }
+});
+// ─── Achievements ─────────────────────────────────────────────────────────
+router.get('/:clanId/achievements', async (req, res) => {
+    try {
+        const { Clan: ClanModel } = await Promise.resolve().then(() => __importStar(require('../models/Clan')));
+        const clan = await ClanModel.findById(req.params.clanId);
+        if (!clan) {
+            res.status(404).json({ success: false, message: 'Clan not found' });
+            return;
+        }
+        const achievements = clan_service_1.default.getAchievementsWithStatus(clan);
+        res.json({ success: true, data: achievements });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to fetch achievements';
+        res.status(500).json({ success: false, message });
+    }
+});
+// ─── Member Leaderboard ───────────────────────────────────────────────────
+router.get('/:clanId/leaderboard/members', async (req, res) => {
+    try {
+        const clan = await clan_service_1.default.getClan(req.params.clanId);
+        if (!clan) {
+            res.status(404).json({ success: false, message: 'Clan not found' });
+            return;
+        }
+        const leaderboard = clan_service_1.default.getMemberLeaderboard(clan);
+        res.json({ success: true, data: leaderboard });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to fetch leaderboard';
+        res.status(500).json({ success: false, message });
+    }
+});
+// ─── Head-to-Head ─────────────────────────────────────────────────────────
+router.get('/:clanId/h2h/:opponentClanId', async (req, res) => {
+    try {
+        const result = await clan_service_1.default.getHeadToHead(req.params.clanId, req.params.opponentClanId);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to fetch head-to-head';
+        res.status(500).json({ success: false, message });
+    }
+});
+// ─── Announcements ────────────────────────────────────────────────────────
+router.put('/:clanId/announcement', async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            res.status(401).json({ success: false, message: 'Unauthorized' });
+            return;
+        }
+        const { text } = req.body;
+        const announcement = await clan_service_1.default.setAnnouncement(req.params.clanId, userId, text || '');
+        res.json({ success: true, data: { announcement } });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to set announcement';
+        const status = message.includes('Only') ? 403 : 500;
+        res.status(status).json({ success: false, message });
+    }
+});
+/**
+ * POST /api/v1/clans/:clanId/announcement/send
+ * Send announcement as notification to all or selected members
+ */
+router.post('/:clanId/announcement/send', async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            res.status(401).json({ success: false, message: 'Unauthorized' });
+            return;
+        }
+        const { title, body, memberIds } = req.body;
+        if (!title || !body) {
+            res.status(400).json({ success: false, message: 'Title and body are required' });
+            return;
+        }
+        const { Clan: ClanModel } = await Promise.resolve().then(() => __importStar(require('../models/Clan')));
+        const clan = await ClanModel.findById(req.params.clanId);
+        if (!clan) {
+            res.status(404).json({ success: false, message: 'Clan not found' });
+            return;
+        }
+        const member = clan.members.find(m => m.user.toString() === userId);
+        if (!member || (member.role !== 'leader' && member.role !== 'co-leader')) {
+            res.status(403).json({ success: false, message: 'Only leaders and co-leaders can send announcements' });
+            return;
+        }
+        const notificationService = (await Promise.resolve().then(() => __importStar(require('../services/notification.service')))).default;
+        const targets = memberIds && Array.isArray(memberIds) && memberIds.length > 0
+            ? clan.members.filter(m => memberIds.includes(m.user.toString()))
+            : clan.members;
+        let sent = 0;
+        for (const m of targets) {
+            try {
+                await notificationService.createNotification({
+                    user: m.user.toString(),
+                    type: 'system',
+                    title,
+                    body,
+                    data: { clanId: clan._id.toString(), type: 'clan_announcement' },
+                });
+                sent++;
+            }
+            catch { }
+        }
+        await clan_service_1.default.logActivity(clan._id.toString(), 'announcement', userId, `sent announcement to ${sent} members`);
+        res.json({ success: true, data: { sent, total: targets.length } });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to send announcement';
+        res.status(500).json({ success: false, message });
+    }
+});
+// ─── Season Leaderboard ──────────────────────────────────────────────────
+router.get('/season/leaderboard', async (req, res) => {
+    try {
+        const clans = await clan_service_1.default.getSeasonLeaderboard(50);
+        res.json({ success: true, data: clans });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to fetch season leaderboard';
+        res.status(500).json({ success: false, message });
+    }
+});
+// ─── Activity Feed ─────────────────────────────────────────────────────────
+/**
+ * GET /api/v1/clans/:clanId/activity
+ * Get clan activity feed
+ */
+router.get('/:clanId/activity', async (req, res) => {
+    try {
+        const activity = await clan_service_1.default.getActivityLog(req.params.clanId);
+        res.json({ success: true, data: activity });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to fetch activity';
+        res.status(500).json({ success: false, message });
+    }
+});
+// ─── Weekly Missions ───────────────────────────────────────────────────────
+/**
+ * GET /api/v1/clans/:clanId/missions
+ * Get active missions for a clan
+ */
+router.get('/:clanId/missions', async (req, res) => {
+    try {
+        const missions = await clan_service_1.default.getActiveMissions(req.params.clanId);
+        res.json({ success: true, data: missions });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to fetch missions';
+        res.status(500).json({ success: false, message });
+    }
+});
+/**
+ * POST /api/v1/clans/:clanId/missions/generate
+ * Generate weekly missions (auto-generates if none exist for current week)
+ */
+router.post('/:clanId/missions/generate', async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            res.status(401).json({ success: false, message: 'Unauthorized' });
+            return;
+        }
+        const missions = await clan_service_1.default.generateWeeklyMissions(req.params.clanId);
+        res.json({ success: true, data: missions });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to generate missions';
+        res.status(500).json({ success: false, message });
+    }
+});
+// ─── Treasury ──────────────────────────────────────────────────────────────
+/**
+ * POST /api/v1/clans/:clanId/treasury/donate
+ * Donate points to clan treasury
+ */
+router.post('/:clanId/treasury/donate', async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            res.status(401).json({ success: false, message: 'Unauthorized' });
+            return;
+        }
+        const { amount } = req.body;
+        if (!amount || amount < 10) {
+            res.status(400).json({ success: false, message: 'Minimum donation is 10 points' });
+            return;
+        }
+        const result = await clan_service_1.default.donateToTreasury(req.params.clanId, userId, amount);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to donate';
+        const status = message.includes('Insufficient') || message.includes('Minimum') ? 400 : 500;
+        res.status(status).json({ success: false, message });
+    }
+});
+/**
+ * GET /api/v1/clans/:clanId/treasury
+ * Get treasury info and donation history
+ */
+router.get('/:clanId/treasury', async (req, res) => {
+    try {
+        const result = await clan_service_1.default.getTreasuryHistory(req.params.clanId);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to fetch treasury';
+        res.status(500).json({ success: false, message });
+    }
+});
+// ─── Clan Chat ─────────────────────────────────────────────────────────────
+/**
+ * GET /api/v1/clans/:clanId/chat
+ * Get the chat match ID for the clan chat
+ */
+router.get('/:clanId/chat', async (req, res) => {
+    try {
+        const chatMatchId = await clan_service_1.default.getChatMatchId(req.params.clanId);
+        if (!chatMatchId) {
+            res.status(404).json({ success: false, message: 'Chat not available' });
+            return;
+        }
+        res.json({ success: true, data: { chatMatchId } });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to get chat';
+        res.status(500).json({ success: false, message });
+    }
+});
+// ─── Perks & Shop ─────────────────────────────────────────────────────────
+/**
+ * GET /api/v1/clans/:clanId/perks
+ * Get clan perks (level-based + active boosts)
+ */
+router.get('/:clanId/perks', async (req, res) => {
+    try {
+        const clan = await (await Promise.resolve().then(() => __importStar(require('../models/Clan')))).Clan.findById(req.params.clanId).select('level purchasedUpgrades');
+        if (!clan) {
+            res.status(404).json({ success: false, message: 'Clan not found' });
+            return;
+        }
+        const allPerks = clan_service_1.default.getAllPerksWithStatus(clan.level);
+        const boostMultiplier = await clan_service_1.default.getActiveBoostMultiplier(req.params.clanId);
+        res.json({ success: true, data: { perks: allPerks, level: clan.level, activeBoostMultiplier: boostMultiplier } });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to fetch perks';
+        res.status(500).json({ success: false, message });
+    }
+});
+/**
+ * GET /api/v1/clans/:clanId/shop
+ * Get shop items with purchase status
+ */
+router.get('/:clanId/shop', async (req, res) => {
+    try {
+        const items = await clan_service_1.default.getShopItems(req.params.clanId);
+        res.json({ success: true, data: items });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to fetch shop';
+        res.status(500).json({ success: false, message });
+    }
+});
+/**
+ * POST /api/v1/clans/:clanId/shop/purchase
+ * Purchase a shop item with treasury
+ */
+router.post('/:clanId/shop/purchase', async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            res.status(401).json({ success: false, message: 'Unauthorized' });
+            return;
+        }
+        const { itemId } = req.body;
+        if (!itemId) {
+            res.status(400).json({ success: false, message: 'itemId is required' });
+            return;
+        }
+        const result = await clan_service_1.default.purchaseShopItem(req.params.clanId, userId, itemId);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to purchase item';
+        const status = message.includes('Insufficient') || message.includes('Only') || message.includes('already') || message.includes('still active') || message.includes('must be level') ? 400 : 500;
         res.status(status).json({ success: false, message });
     }
 });

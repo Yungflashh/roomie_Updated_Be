@@ -3,27 +3,60 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getIO = exports.isUserOnline = exports.emitNewMatch = exports.emitNotification = exports.emitMatchRequest = exports.emitMatchNotification = exports.emitUnreadUpdate = exports.emitNextQuestion = exports.emitScoreUpdate = exports.emitGameEnded = exports.emitGameStarted = exports.emitGameInvitationResponse = exports.emitGameInvitation = exports.emitNewMessage = exports.emitToGameSession = exports.emitToChat = exports.emitToUser = exports.initializeSocket = void 0;
-// src/config/socket.config.ts (Backend - Enhanced with better logging)
+exports.getIO = exports.emitClanWarUpdate = exports.isUserOnline = exports.emitNewMatch = exports.emitNotification = exports.emitMatchRequest = exports.emitMatchNotification = exports.emitUnreadUpdate = exports.emitNextQuestion = exports.emitScoreUpdate = exports.emitGameEnded = exports.emitGameStarted = exports.emitGameInvitationResponse = exports.emitGameInvitation = exports.emitNewMessage = exports.emitToGameSession = exports.emitToChat = exports.emitToUser = exports.initializeSocket = void 0;
+// src/config/socket.config.ts (Scaled for 500-1000 concurrent users)
 const socket_io_1 = require("socket.io");
+const redis_adapter_1 = require("@socket.io/redis-adapter");
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const mongoose_1 = __importDefault(require("mongoose"));
 const models_1 = require("../models");
 const logger_1 = __importDefault(require("../utils/logger"));
+const redis_1 = require("./redis");
 let io = null;
-// Store online users: Map<userId, Set<socketId>>
-const onlineUsers = new Map();
-// Store user's current game session: Map<userId, sessionId>
-const userGameSessions = new Map();
+// Redis key prefixes for online tracking
+const ONLINE_PREFIX = 'online:';
+const GAME_SESSION_PREFIX = 'gamesession:';
+const ONLINE_TTL = 300; // 5 minutes TTL as safety net
+// ==================== REDIS-BASED ONLINE TRACKING ====================
+const addOnlineUser = async (userId, socketId) => {
+    await redis_1.redisClient.sadd(`${ONLINE_PREFIX}${userId}`, socketId);
+    await redis_1.redisClient.expire(`${ONLINE_PREFIX}${userId}`, ONLINE_TTL);
+};
+const removeOnlineSocket = async (userId, socketId) => {
+    await redis_1.redisClient.srem(`${ONLINE_PREFIX}${userId}`, socketId);
+    const remaining = await redis_1.redisClient.scard(`${ONLINE_PREFIX}${userId}`);
+    if (remaining === 0) {
+        await redis_1.redisClient.del(`${ONLINE_PREFIX}${userId}`);
+        return true; // user fully offline
+    }
+    return false;
+};
+const isOnline = async (userId) => {
+    const count = await redis_1.redisClient.scard(`${ONLINE_PREFIX}${userId}`);
+    return count > 0;
+};
+const setGameSession = async (userId, sessionId) => {
+    await redis_1.redisClient.set(`${GAME_SESSION_PREFIX}${userId}`, sessionId, 'EX', 3600);
+};
+const getGameSession = async (userId) => {
+    return redis_1.redisClient.get(`${GAME_SESSION_PREFIX}${userId}`);
+};
+const removeGameSession = async (userId) => {
+    await redis_1.redisClient.del(`${GAME_SESSION_PREFIX}${userId}`);
+};
+// ==================== SOCKET INITIALIZATION ====================
 const initializeSocket = (server) => {
     io = new socket_io_1.Server(server, {
         cors: {
-            origin: '*',
+            origin: process.env.CLIENT_URL || '*',
             methods: ['GET', 'POST'],
         },
         pingTimeout: 60000,
         pingInterval: 25000,
     });
+    // Wire up Redis adapter for multi-process support
+    io.adapter((0, redis_adapter_1.createAdapter)(redis_1.redisPubClient, redis_1.redisSubClient));
+    logger_1.default.info('Socket.IO Redis adapter connected');
     // Authentication middleware
     io.use(async (socket, next) => {
         try {
@@ -53,11 +86,8 @@ const initializeSocket = (server) => {
     io.on('connection', (socket) => {
         const userId = socket.data.user._id;
         logger_1.default.info(`Socket connected: ${socket.id}, User: ${userId}`);
-        // Track online status
-        if (!onlineUsers.has(userId)) {
-            onlineUsers.set(userId, new Set());
-        }
-        onlineUsers.get(userId).add(socket.id);
+        // Track online status in Redis
+        addOnlineUser(userId, socket.id);
         // Join personal room
         socket.join(`user:${userId}`);
         // Broadcast online status
@@ -101,16 +131,16 @@ const initializeSocket = (server) => {
             try {
                 const users = await models_1.User.find({ _id: { $in: userIds } }).select('privacySettings lastSeen').lean();
                 const userMap = new Map(users.map(u => [u._id.toString(), u]));
-                const statuses = userIds.map((id) => {
+                const statuses = await Promise.all(userIds.map(async (id) => {
                     const u = userMap.get(id);
                     const showOnline = u?.privacySettings?.showOnlineStatus !== false;
                     const showLastSeen = u?.privacySettings?.showLastSeen !== false;
                     return {
                         userId: id,
-                        isOnline: showOnline ? (onlineUsers.has(id) && onlineUsers.get(id).size > 0) : false,
+                        isOnline: showOnline ? await isOnline(id) : false,
                         lastSeen: showLastSeen ? u?.lastSeen : null,
                     };
-                });
+                }));
                 socket.emit('presence:status', statuses);
             }
             catch {
@@ -126,12 +156,10 @@ const initializeSocket = (server) => {
         // Join game session room
         socket.on('game:join', (sessionId) => {
             socket.join(`game:${sessionId}`);
-            userGameSessions.set(userId, sessionId);
-            logger_1.default.info(`✅ User ${userId} (${socket.data.user.firstName}) joined game session room: game:${sessionId}`);
-            // Log room state
+            setGameSession(userId, sessionId);
+            logger_1.default.info(`User ${userId} (${socket.data.user.firstName}) joined game session room: game:${sessionId}`);
             const roomSize = io?.sockets.adapter.rooms.get(`game:${sessionId}`)?.size || 0;
-            logger_1.default.info(`📊 Room game:${sessionId} now has ${roomSize} socket(s)`);
-            // Notify other players
+            logger_1.default.info(`Room game:${sessionId} now has ${roomSize} socket(s)`);
             socket.to(`game:${sessionId}`).emit('game:player_joined', {
                 sessionId,
                 user: socket.data.user,
@@ -140,9 +168,8 @@ const initializeSocket = (server) => {
         // Leave game session room
         socket.on('game:leave', (sessionId) => {
             socket.leave(`game:${sessionId}`);
-            userGameSessions.delete(userId);
+            removeGameSession(userId);
             logger_1.default.info(`User ${userId} left game session: ${sessionId}`);
-            // Notify other players
             socket.to(`game:${sessionId}`).emit('game:player_left', {
                 sessionId,
                 userId,
@@ -151,34 +178,15 @@ const initializeSocket = (server) => {
         // Player ready - with auto-start logic
         socket.on('game:ready', async (sessionId) => {
             try {
-                logger_1.default.info(`========== GAME:READY EVENT ==========`);
-                logger_1.default.info(`Player ${userId} (${socket.data.user.firstName}) clicked ready for session ${sessionId}`);
-                logger_1.default.info(`Socket ID: ${socket.id}`);
-                // Check room membership
+                logger_1.default.info(`Player ${userId} clicked ready for session ${sessionId}`);
                 const roomSize = io?.sockets.adapter.rooms.get(`game:${sessionId}`)?.size || 0;
-                const socketsInRoom = Array.from(io?.sockets.adapter.rooms.get(`game:${sessionId}`) || []);
-                logger_1.default.info(`📊 Room game:${sessionId} has ${roomSize} socket(s): ${socketsInRoom.join(', ')}`);
-                // First, let's check the session state BEFORE update
                 const beforeSession = await models_1.GameSession.findById(sessionId);
-                if (beforeSession) {
-                    logger_1.default.info(`BEFORE UPDATE - Session status: ${beforeSession.status}`);
-                    logger_1.default.info(`BEFORE UPDATE - Players: ${JSON.stringify(beforeSession.players.map(p => ({
-                        userId: p.user.toString(),
-                        isReady: p.isReady,
-                        score: p.score
-                    })))}`);
-                }
-                else {
-                    logger_1.default.error(`❌ Session ${sessionId} not found!`);
+                if (!beforeSession) {
                     socket.emit('game:error', { message: 'Game session not found' });
                     return;
                 }
-                // Check if userId is in players array
                 const playerExists = beforeSession.players.some(p => p.user.toString() === userId);
-                logger_1.default.info(`Player ${userId} exists in session: ${playerExists}`);
                 if (!playerExists) {
-                    logger_1.default.error(`❌ Player ${userId} is NOT in the players array!`);
-                    logger_1.default.info(`Players in session: ${beforeSession.players.map(p => p.user.toString()).join(', ')}`);
                     socket.emit('game:error', { message: 'You are not in this game' });
                     return;
                 }
@@ -192,18 +200,10 @@ const initializeSocket = (server) => {
                     .populate('game')
                     .populate('players.user', 'firstName lastName profilePhoto');
                 if (!session) {
-                    logger_1.default.error(`❌ findOneAndUpdate returned null for session: ${sessionId}, userId: ${userId}`);
                     socket.emit('game:error', { message: 'Failed to update ready state' });
                     return;
                 }
-                logger_1.default.info(`✅ AFTER UPDATE - Session status: ${session.status}`);
-                logger_1.default.info(`AFTER UPDATE - Players: ${JSON.stringify(session.players.map(p => ({
-                    userId: p.user._id ? p.user._id.toString() : p.user.toString(),
-                    firstName: p.user.firstName,
-                    isReady: p.isReady
-                })))}`);
                 // Broadcast ready state to all players in the game room
-                logger_1.default.info(`📡 Broadcasting game:player_ready to room game:${sessionId}`);
                 io?.to(`game:${sessionId}`).emit('game:player_ready', {
                     sessionId,
                     userId,
@@ -213,16 +213,8 @@ const initializeSocket = (server) => {
                 const allReady = session.players.every(p => p.isReady === true);
                 const game = session.game;
                 const minPlayers = game?.minPlayers || 2;
-                logger_1.default.info(`========== READY CHECK ==========`);
-                logger_1.default.info(`allReady: ${allReady}`);
-                logger_1.default.info(`playerCount: ${session.players.length}`);
-                logger_1.default.info(`minPlayers: ${minPlayers}`);
-                logger_1.default.info(`status: ${session.status}`);
-                logger_1.default.info(`Condition check: allReady(${allReady}) && playerCount(${session.players.length}) >= minPlayers(${minPlayers}) && status(${session.status}) === 'waiting'`);
-                logger_1.default.info(`Result: ${allReady && session.players.length >= minPlayers && session.status === 'waiting'}`);
                 if (allReady && session.players.length >= minPlayers && session.status === 'waiting') {
-                    logger_1.default.info(`========== 🎮 STARTING GAME ==========`);
-                    logger_1.default.info(`All conditions met! Starting game ${sessionId}`);
+                    logger_1.default.info(`All players ready, starting game ${sessionId}`);
                     // Auto-start the game with atomic update
                     const updatedSession = await models_1.GameSession.findOneAndUpdate({ _id: sessionId, status: 'waiting' }, {
                         $set: {
@@ -232,7 +224,6 @@ const initializeSocket = (server) => {
                     }, { new: true })
                         .populate('game')
                         .populate('players.user', 'firstName lastName profilePhoto');
-                    logger_1.default.info(`Updated session status: ${updatedSession?.status}`);
                     if (updatedSession && updatedSession.status === 'active') {
                         const gameStartedData = {
                             sessionId,
@@ -241,35 +232,18 @@ const initializeSocket = (server) => {
                             gameData: updatedSession.gameData,
                             startedAt: updatedSession.startedAt,
                         };
-                        logger_1.default.info(`📡 Emitting game:started to room game:${sessionId}`);
-                        logger_1.default.info(`gameData has ${updatedSession.gameData?.questions?.length || 0} questions`);
-                        logger_1.default.info(`Broadcasting to ${roomSize} client(s) in room`);
                         io?.to(`game:${sessionId}`).emit('game:started', gameStartedData);
-                        logger_1.default.info(`✅ Game auto-started and emitted: ${sessionId}`);
-                    }
-                    else {
-                        logger_1.default.info(`⚠️ Game already started by another player or update failed`);
+                        logger_1.default.info(`Game auto-started: ${sessionId}`);
                     }
                 }
-                else {
-                    logger_1.default.info(`❌ Not all conditions met for starting game`);
-                    if (!allReady)
-                        logger_1.default.info(`  ➜ Not all players ready`);
-                    if (session.players.length < minPlayers)
-                        logger_1.default.info(`  ➜ Not enough players (${session.players.length}/${minPlayers})`);
-                    if (session.status !== 'waiting')
-                        logger_1.default.info(`  ➜ Wrong status (${session.status}, expected 'waiting')`);
-                }
-                logger_1.default.info(`========== END GAME:READY ==========`);
             }
             catch (error) {
-                logger_1.default.error('❌ Game ready error:', error);
+                logger_1.default.error('Game ready error:', error);
                 socket.emit('game:error', { message: 'Failed to update ready state' });
             }
         });
         // Submit answer (for trivia/quiz games)
         socket.on('game:answer', (data) => {
-            // Broadcast to game room that player answered (without revealing answer)
             socket.to(`game:${data.sessionId}`).emit('game:player_answered', {
                 sessionId: data.sessionId,
                 userId,
@@ -287,47 +261,42 @@ const initializeSocket = (server) => {
             });
         });
         // Handle disconnect
-        socket.on('disconnect', (reason) => {
+        socket.on('disconnect', async (reason) => {
             logger_1.default.info(`Socket disconnected: ${socket.id}, User: ${userId}, Reason: ${reason}`);
-            const userSockets = onlineUsers.get(userId);
-            if (userSockets) {
-                userSockets.delete(socket.id);
-                if (userSockets.size === 0) {
-                    onlineUsers.delete(userId);
-                    broadcastPresenceUpdate(userId, false);
-                    // Handle game session disconnect
-                    const sessionId = userGameSessions.get(userId);
-                    if (sessionId) {
-                        io?.to(`game:${sessionId}`).emit('game:player_disconnected', {
-                            sessionId,
-                            userId,
-                        });
-                        userGameSessions.delete(userId);
-                    }
+            const fullyOffline = await removeOnlineSocket(userId, socket.id);
+            if (fullyOffline) {
+                broadcastPresenceUpdate(userId, false);
+                // Handle game session disconnect
+                const sessionId = await getGameSession(userId);
+                if (sessionId) {
+                    io?.to(`game:${sessionId}`).emit('game:player_disconnected', {
+                        sessionId,
+                        userId,
+                    });
+                    await removeGameSession(userId);
                 }
             }
-            // Always update lastSeen internally (for the system), privacy controls what's exposed to others
+            // Always update lastSeen internally
             models_1.User.findByIdAndUpdate(userId, { lastSeen: new Date() }).catch((err) => logger_1.default.error('Failed to update last seen:', err));
         });
     });
-    logger_1.default.info('Socket.IO initialized');
+    logger_1.default.info('Socket.IO initialized with Redis adapter');
     return io;
 };
 exports.initializeSocket = initializeSocket;
 // Broadcast presence update to relevant users (respects privacy settings)
-const broadcastPresenceUpdate = async (userId, isOnline) => {
+const broadcastPresenceUpdate = async (userId, isOnlineStatus) => {
     try {
         const user = await models_1.User.findById(userId).select('privacySettings').lean();
         const showOnline = user?.privacySettings?.showOnlineStatus !== false;
         const showLastSeen = user?.privacySettings?.showLastSeen !== false;
         io?.emit('presence:update', {
             userId,
-            isOnline: showOnline ? isOnline : false,
+            isOnline: showOnline ? isOnlineStatus : false,
             lastSeen: showLastSeen ? new Date().toISOString() : null,
         });
     }
     catch {
-        // Fallback: still broadcast but as offline
         io?.emit('presence:update', { userId, isOnline: false, lastSeen: null });
     }
 };
@@ -343,8 +312,6 @@ const emitToChat = (matchId, event, data) => {
 exports.emitToChat = emitToChat;
 // Emit to game session room
 const emitToGameSession = (sessionId, event, data) => {
-    const roomSize = io?.sockets.adapter.rooms.get(`game:${sessionId}`)?.size || 0;
-    logger_1.default.info(`📡 Emitting ${event} to game room ${sessionId} (${roomSize} client(s))`);
     io?.to(`game:${sessionId}`).emit(event, data);
 };
 exports.emitToGameSession = emitToGameSession;
@@ -354,13 +321,11 @@ const emitNewMessage = (matchId, message, senderId, receiverId) => {
         ...message,
         matchId,
     });
-    logger_1.default.info(`Message emitted to receiver ${receiverId} (skipped sender ${senderId})`);
 };
 exports.emitNewMessage = emitNewMessage;
 // Emit game invitation
 const emitGameInvitation = (invitedUserId, invitation) => {
     (0, exports.emitToUser)(invitedUserId, 'game:invitation', invitation);
-    logger_1.default.info(`Game invitation sent to ${invitedUserId}`);
 };
 exports.emitGameInvitation = emitGameInvitation;
 // Emit game invitation response
@@ -371,13 +336,11 @@ exports.emitGameInvitationResponse = emitGameInvitationResponse;
 // Emit game started
 const emitGameStarted = (sessionId, gameData) => {
     (0, exports.emitToGameSession)(sessionId, 'game:started', gameData);
-    logger_1.default.info(`✅ Game started event emitted: ${sessionId}`);
 };
 exports.emitGameStarted = emitGameStarted;
 // Emit game ended
 const emitGameEnded = (sessionId, results) => {
     (0, exports.emitToGameSession)(sessionId, 'game:ended', results);
-    logger_1.default.info(`Game ended: ${sessionId}`);
 };
 exports.emitGameEnded = emitGameEnded;
 // Emit score update
@@ -415,11 +378,18 @@ const emitNewMatch = (user1Id, user2Id, matchData) => {
     (0, exports.emitToUser)(user2Id, 'match:new', matchData);
 };
 exports.emitNewMatch = emitNewMatch;
-// Check if user is online
-const isUserOnline = (userId) => {
-    return onlineUsers.has(userId) && onlineUsers.get(userId).size > 0;
+// Check if user is online (async now - uses Redis)
+const isUserOnline = async (userId) => {
+    return isOnline(userId);
 };
 exports.isUserOnline = isUserOnline;
+// Emit clan war update to all members of a clan
+const emitClanWarUpdate = (clanMemberUserIds, event, data) => {
+    for (const uid of clanMemberUserIds) {
+        (0, exports.emitToUser)(uid, event, data);
+    }
+};
+exports.emitClanWarUpdate = emitClanWarUpdate;
 // Get IO instance
 const getIO = () => io;
 exports.getIO = getIO;

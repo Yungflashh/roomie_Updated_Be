@@ -107,10 +107,31 @@ class PointsService {
             if (!user) {
                 throw new Error('User not found');
             }
+            // Apply clan perk bonus to personal points (for earned/game_reward/achievement types)
+            let finalAmount = amount;
+            const boostableTypes = ['earned', 'game_reward', 'achievement', 'daily_login', 'bonus'];
+            if (boostableTypes.includes(type) && amount > 0) {
+                try {
+                    const { Clan } = await Promise.resolve().then(() => __importStar(require('../models/Clan')));
+                    const clan = await Clan.findOne({ 'members.user': userId }).select('level purchasedUpgrades').lean();
+                    if (clan) {
+                        const clanService = (await Promise.resolve().then(() => __importStar(require('./clan.service')))).default;
+                        const boostPct = await clanService.getActiveBoostMultiplier(clan._id.toString());
+                        if (boostPct > 0) {
+                            const bonus = Math.round(amount * boostPct);
+                            finalAmount = amount + bonus;
+                            logger_1.default.info(`Clan boost: +${Math.round(boostPct * 100)}% (+${bonus}) for user ${userId}`);
+                        }
+                    }
+                }
+                catch (e) {
+                    // Clan boost is best-effort; don't fail the point award
+                }
+            }
             const config = await this.getConfig();
             const oldPoints = user.gamification.points;
             const oldLevel = user.gamification.level;
-            const newPoints = oldPoints + amount;
+            const newPoints = oldPoints + finalAmount;
             // Update user points
             user.gamification.points = newPoints;
             // Check for level up
@@ -126,9 +147,9 @@ class PointsService {
             const transaction = await PointTransaction_1.PointTransaction.create({
                 user: userId,
                 type,
-                amount,
+                amount: finalAmount,
                 balance: newPoints,
-                reason,
+                reason: finalAmount > amount ? `${reason} (+${finalAmount - amount} clan boost)` : reason,
                 metadata: {
                     ...metadata,
                     oldLevel: leveledUp ? oldLevel : undefined,
@@ -315,9 +336,31 @@ class PointsService {
                     metadata: { streak: user.gamification.streak },
                 });
             }
+            // Clan daily bonus — clan members get extra daily points
+            let clanBonus = 0;
+            try {
+                const { Clan } = await Promise.resolve().then(() => __importStar(require('../models/Clan')));
+                const clan = await Clan.findOne({ 'members.user': userId }).select('level tag');
+                if (clan) {
+                    clanBonus = 5 + Math.min(clan.level, 10) * 2; // 7 at level 1, up to 25 at level 10
+                    await this.addPoints({
+                        userId,
+                        amount: clanBonus,
+                        type: 'bonus',
+                        reason: `Clan [${clan.tag}] daily member bonus`,
+                        metadata: { clanId: clan._id.toString(), clanLevel: clan.level },
+                    });
+                    // Also track for clan
+                    const clanService = (await Promise.resolve().then(() => __importStar(require('./clan.service')))).default;
+                    await clanService.trackMemberActivity(userId, 'daily_login', 5);
+                }
+            }
+            catch (e) {
+                // Best-effort
+            }
             return {
                 awarded: true,
-                amount: bonus,
+                amount: bonus + clanBonus,
                 newBalance: result.newBalance,
             };
         }

@@ -10,18 +10,26 @@ const helmet_1 = __importDefault(require("helmet"));
 const compression_1 = __importDefault(require("compression"));
 const morgan_1 = __importDefault(require("morgan"));
 const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
+const rate_limit_redis_1 = require("rate-limit-redis");
 const path_1 = __importDefault(require("path"));
 const routes_1 = __importDefault(require("./routes"));
 const error_middleware_1 = require("./middleware/error.middleware");
 const logger_1 = __importDefault(require("./utils/logger"));
+const redis_1 = require("./config/redis");
+// Redis store factory — shares rate limit state across all server instances
+const createRedisStore = (prefix) => new rate_limit_redis_1.RedisStore({
+    sendCommand: (...args) => redis_1.redisClient.call(...args),
+    prefix: `rl:${prefix}:`,
+});
 // Create rate limiters
 // 1. General API rate limiter - permissive for regular use
 exports.generalLimiter = (0, express_rate_limit_1.default)({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '1000'), // 1000 requests per 15 min
+    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100000'), // default high for load testing; override in production
     message: 'Too many requests from this IP, please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
+    store: createRedisStore('general'),
     skip: (req) => {
         // Skip rate limiting for real-time/high-frequency endpoints
         const skipPaths = [
@@ -39,6 +47,7 @@ exports.authLimiter = (0, express_rate_limit_1.default)({
     message: 'Too many authentication attempts, please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
+    store: createRedisStore('auth'),
     skipSuccessfulRequests: true, // Don't count successful logins
 });
 // 3. Moderate limiter for resource-intensive operations
@@ -48,6 +57,7 @@ exports.uploadLimiter = (0, express_rate_limit_1.default)({
     message: 'Too many upload requests, please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
+    store: createRedisStore('upload'),
 });
 const createApp = () => {
     const app = (0, express_1.default)();

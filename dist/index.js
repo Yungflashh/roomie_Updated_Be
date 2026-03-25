@@ -14,6 +14,7 @@ const socket_config_1 = require("./config/socket.config"); // <-- Import socket 
 const logger_1 = __importDefault(require("./utils/logger"));
 const models_1 = require("./models");
 const redis_2 = __importDefault(require("./config/redis"));
+const clanJobs_1 = require("./jobs/clanJobs");
 const PORT = parseInt(process.env.PORT || '5000', 10);
 async function clearDuplicateData() {
     try {
@@ -42,6 +43,8 @@ const startServer = async () => {
         const io = (0, socket_config_1.initializeSocket)(httpServer);
         // Make io accessible in routes
         app.set('io', io);
+        // Initialize cron jobs
+        (0, clanJobs_1.initClanJobs)();
         // Start server - USE httpServer.listen, NOT app.listen
         httpServer.listen(PORT, '0.0.0.0', () => {
             logger_1.default.info(`

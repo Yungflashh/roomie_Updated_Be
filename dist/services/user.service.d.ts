@@ -2,6 +2,10 @@ import { IUserDocument } from '../models';
 declare class UserService {
     getUserById(userId: string, currentUserId?: string): Promise<any>;
     /**
+     * Get clan info for a user (lightweight)
+     */
+    getUserClanInfo(userId: string): Promise<any>;
+    /**
      * Update user profile
      */
     updateProfile(userId: string, updates: any): Promise<IUserDocument>;

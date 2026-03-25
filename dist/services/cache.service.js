@@ -47,10 +47,18 @@ class CacheService {
      */
     async invalidatePattern(pattern) {
         try {
-            const keys = await redis_1.default.keys(pattern);
-            if (keys.length > 0) {
-                await redis_1.default.del(...keys);
-                logger_1.default.info(`Invalidated ${keys.length} cache keys matching: ${pattern}`);
+            let cursor = '0';
+            let totalDeleted = 0;
+            do {
+                const [nextCursor, keys] = await redis_1.default.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+                cursor = nextCursor;
+                if (keys.length > 0) {
+                    await redis_1.default.del(...keys);
+                    totalDeleted += keys.length;
+                }
+            } while (cursor !== '0');
+            if (totalDeleted > 0) {
+                logger_1.default.info(`Invalidated ${totalDeleted} cache keys matching: ${pattern}`);
             }
         }
         catch (err) {

@@ -1,13 +1,48 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const mongoose_1 = __importDefault(require("mongoose"));
 const Clan_1 = require("../models/Clan");
+const ClanMission_1 = require("../models/ClanMission");
 const notification_service_1 = __importDefault(require("./notification.service"));
 const points_service_1 = __importDefault(require("./points.service"));
 const logger_1 = __importDefault(require("../utils/logger"));
+const socket_config_1 = require("../config/socket.config");
 class ClanService {
     // ─── Clan CRUD ───────────────────────────────────────────────────────────
     /**
@@ -47,6 +82,8 @@ class ClanService {
                     },
                 ],
             });
+            // Log activity
+            await this.logActivity(clan._id.toString(), 'clan_created', userId, 'created the clan');
             logger_1.default.info(`Clan created: ${clan.name} [${clan.tag}] by user ${userId}`);
             return clan;
         }
@@ -145,6 +182,8 @@ class ClanService {
                 pointsContributed: 0,
             });
             await clan.save();
+            // Log activity
+            await this.logActivity(clan._id.toString(), 'member_joined', userId, 'joined the clan');
             logger_1.default.info(`User ${userId} joined clan ${clan.name}`);
             // Notify leader
             try {
@@ -187,6 +226,8 @@ class ClanService {
                 pointsContributed: 0,
             });
             await clan.save();
+            // Log activity
+            await this.logActivity(clan._id.toString(), 'member_joined', userId, 'joined the clan via invite code');
             logger_1.default.info(`User ${userId} joined clan ${clan.name} via invite code`);
             try {
                 await notification_service_1.default.createNotification({
@@ -199,6 +240,16 @@ class ClanService {
             }
             catch (e) {
                 logger_1.default.warn('Clan join notification error:', e);
+            }
+            // Invite rewards: joiner gets welcome bonus, inviter (leader) gets referral bonus
+            try {
+                await points_service_1.default.addPoints({ userId, amount: 50, type: 'bonus', reason: `Welcome bonus for joining clan [${clan.tag}]`, metadata: { clanId: clan._id.toString() } });
+                await points_service_1.default.addPoints({ userId: clan.leader.toString(), amount: 30, type: 'bonus', reason: `Referral bonus — new member joined [${clan.tag}] via invite`, metadata: { clanId: clan._id.toString(), referredUserId: userId } });
+                await notification_service_1.default.createNotification({ user: userId, type: 'achievement', title: 'Welcome Bonus!', body: `You earned 50 points for joining clan [${clan.tag}]!`, data: { clanId: clan._id.toString() } });
+                await notification_service_1.default.createNotification({ user: clan.leader.toString(), type: 'achievement', title: 'Referral Bonus!', body: `You earned 30 points — someone joined via your invite code!`, data: { clanId: clan._id.toString() } });
+            }
+            catch (e) {
+                logger_1.default.warn('Invite reward error:', e);
             }
             return clan;
         }
@@ -267,6 +318,8 @@ class ClanService {
             clan.members = clan.members.filter((m) => m.user.toString() !== targetUserId);
             clan.coLeaders = clan.coLeaders.filter((id) => id.toString() !== targetUserId);
             await clan.save();
+            // Log activity
+            await this.logActivity(clan._id.toString(), 'member_kicked', leaderId, 'removed a member from the clan');
             logger_1.default.info(`User ${targetUserId} kicked from clan ${clan.name} by ${leaderId}`);
             try {
                 await notification_service_1.default.createNotification({
@@ -313,6 +366,9 @@ class ClanService {
                 clan.coLeaders = clan.coLeaders.filter((id) => id.toString() !== targetUserId);
             }
             await clan.save();
+            // Log activity
+            const action = role === 'co-leader' ? 'was promoted to Co-Leader' : 'was demoted to Member';
+            await this.logActivity(clan._id.toString(), 'member_promoted', targetUserId, action);
             logger_1.default.info(`User ${targetUserId} promoted to ${role} in clan ${clan.name}`);
             return clan;
         }
@@ -397,7 +453,9 @@ class ClanService {
                     totalPoints: points,
                     weeklyPoints: points,
                     monthlyPoints: points,
+                    'season.points': points,
                     'members.$.pointsContributed': points,
+                    'members.$.weeklyContribution': points,
                 },
             });
             // Level up check: every 1000 total points = 1 level
@@ -410,6 +468,8 @@ class ClanService {
                     await clan.save();
                     logger_1.default.info(`Clan ${clan.tag} leveled up to ${newLevel}`);
                 }
+                // Check achievements
+                await this.checkAchievements(clanId);
             }
         }
         catch (error) {
@@ -424,11 +484,45 @@ class ClanService {
             const clan = await Clan_1.Clan.findOne({ 'members.user': userId });
             if (!clan)
                 return; // user not in a clan
-            await this.addClanPoints(clan._id.toString(), userId, points, action);
+            // Apply streak multiplier
+            let multiplier = 1;
+            if (clan.streak && clan.streak.current >= 14) {
+                multiplier = 2;
+            }
+            else if (clan.streak && clan.streak.current >= 7) {
+                multiplier = 1.5;
+            }
+            // Apply perk/boost multiplier
+            const boostMultiplier = await this.getActiveBoostMultiplier(clan._id.toString());
+            multiplier += boostMultiplier;
+            const adjustedPoints = Math.round(points * multiplier);
+            await this.addClanPoints(clan._id.toString(), userId, adjustedPoints, action);
+            // Log activity
+            const multiplierText = multiplier > 1 ? ` (${multiplier}x streak bonus)` : '';
+            await this.logActivity(clan._id.toString(), 'points_earned', userId, `earned ${adjustedPoints} pts from ${action}${multiplierText}`, adjustedPoints);
+            // Update streak
+            await this.updateStreak(clan._id.toString());
+            // Update mission progress
+            const missionType = this.actionToMissionType(action);
+            if (missionType) {
+                await this.updateMissionProgress(clan._id.toString(), missionType, missionType === 'points_earned' ? adjustedPoints : 1);
+            }
         }
         catch (error) {
             logger_1.default.warn('trackMemberActivity error:', error);
         }
+    }
+    /**
+     * Map action strings to mission types.
+     */
+    actionToMissionType(action) {
+        if (action.toLowerCase().includes('game') && action.toLowerCase().includes('win'))
+            return 'games_won';
+        if (action.toLowerCase().includes('war') && action.toLowerCase().includes('won'))
+            return 'wars_won';
+        if (action.toLowerCase().includes('challenge'))
+            return 'challenges_completed';
+        return 'points_earned';
     }
     /**
      * Reset weekly points. Called by cron. Award top clans before reset.
@@ -461,8 +555,39 @@ class ClanService {
                     logger_1.default.warn('Weekly reset notification error:', e);
                 }
             }
-            await Clan_1.Clan.updateMany({}, { $set: { weeklyPoints: 0 } });
-            logger_1.default.info('Weekly clan points reset completed');
+            // Award top 3 contributing members in every clan with personal points
+            const allClans = await Clan_1.Clan.find({ 'members.1': { $exists: true } }); // clans with 2+ members
+            const memberRewards = [100, 50, 25];
+            for (const clan of allClans) {
+                // Sort members by weekly contributions (pointsContributed is cumulative, but we use it as a proxy)
+                const sortedMembers = [...clan.members]
+                    .filter(m => m.pointsContributed > 0)
+                    .sort((a, b) => b.pointsContributed - a.pointsContributed);
+                for (let j = 0; j < Math.min(sortedMembers.length, 3); j++) {
+                    const member = sortedMembers[j];
+                    try {
+                        await points_service_1.default.addPoints({
+                            userId: member.user.toString(),
+                            amount: memberRewards[j],
+                            type: 'bonus',
+                            reason: `#${j + 1} clan contributor this week in [${clan.tag}]`,
+                            metadata: { clanId: clan._id.toString(), rank: j + 1 },
+                        });
+                        await notification_service_1.default.createNotification({
+                            user: member.user.toString(),
+                            type: 'achievement',
+                            title: 'Weekly Clan Reward!',
+                            body: `You ranked #${j + 1} contributor in [${clan.tag}] and earned ${memberRewards[j]} personal points!`,
+                            data: { clanId: clan._id.toString() },
+                        });
+                    }
+                    catch (e) {
+                        logger_1.default.warn(`Weekly member reward error for ${member.user}:`, e);
+                    }
+                }
+            }
+            await Clan_1.Clan.updateMany({}, { $set: { weeklyPoints: 0, 'members.$[].weeklyContribution': 0 } });
+            logger_1.default.info('Weekly clan points reset completed (clan rewards + member rewards)');
         }
         catch (error) {
             logger_1.default.error('resetWeeklyPoints error:', error);
@@ -540,6 +665,9 @@ class ClanService {
                 pointsStake,
                 expiresAt,
             });
+            // Log activity for both clans
+            await this.logActivity(challengerClanId, 'war_started', challenger.leader.toString(), `declared war on [${defender.tag}]`);
+            await this.logActivity(defenderClanId, 'war_started', defender.leader.toString(), `received war challenge from [${challenger.tag}]`);
             logger_1.default.info(`Clan war created: [${challenger.tag}] vs [${defender.tag}]`);
             // Notify defender clan leader
             try {
@@ -596,6 +724,12 @@ class ClanService {
                     catch (e) {
                         logger_1.default.warn('War accept notification error:', e);
                     }
+                    // Emit socket event to challenger clan members
+                    try {
+                        const memberIds = challenger.members.map((m) => m.user.toString());
+                        (0, socket_config_1.emitClanWarUpdate)(memberIds, 'clan:war_accepted', { warId: war._id.toString(), status: 'accepted' });
+                    }
+                    catch { }
                 }
             }
             else {
@@ -603,6 +737,15 @@ class ClanService {
                 logger_1.default.info(`Clan war ${warId} declined`);
             }
             await war.save();
+            // Emit socket event to defender clan members
+            try {
+                const defender = await Clan_1.Clan.findById(clanId);
+                if (defender) {
+                    const memberIds = defender.members.map((m) => m.user.toString());
+                    (0, socket_config_1.emitClanWarUpdate)(memberIds, accept ? 'clan:war_accepted' : 'clan:war_declined', { warId: war._id.toString(), status: war.status });
+                }
+            }
+            catch { }
             return war;
         }
         catch (error) {
@@ -642,8 +785,8 @@ class ClanService {
                 for (let i = 0; i < matchCount; i++) {
                     const pid = new mongoose_1.default.Types.ObjectId(playerIds[i]);
                     war.matches.push({
-                        challengerPlayer: isChallenger ? pid : pid,
-                        defenderPlayer: isDefender ? pid : pid,
+                        challengerPlayer: isChallenger ? pid : undefined,
+                        defenderPlayer: isDefender ? pid : undefined,
                         gameType: gameTypes[i % gameTypes.length],
                         challengerScore: 0,
                         defenderScore: 0,
@@ -665,8 +808,8 @@ class ClanService {
                 }
             }
             // If both sides have assigned, start the war
-            const challengerAssigned = war.matches.length > 0;
-            const defenderAssigned = war.matches.length > 0;
+            const challengerAssigned = war.matches.every((m) => m.challengerPlayer);
+            const defenderAssigned = war.matches.every((m) => m.defenderPlayer);
             if (challengerAssigned && defenderAssigned && war.status === 'accepted') {
                 war.status = 'in_progress';
                 war.startedAt = new Date();
@@ -713,6 +856,25 @@ class ClanService {
             }
             await war.save();
             logger_1.default.info(`War ${warId} match ${matchIndex} completed: ${winningSide}`);
+            // Emit real-time score update to both clans
+            try {
+                const [challengerClan, defenderClan] = await Promise.all([
+                    Clan_1.Clan.findById(war.challenger),
+                    Clan_1.Clan.findById(war.defender),
+                ]);
+                const allMemberIds = [
+                    ...(challengerClan?.members?.map((m) => m.user.toString()) || []),
+                    ...(defenderClan?.members?.map((m) => m.user.toString()) || []),
+                ];
+                (0, socket_config_1.emitClanWarUpdate)(allMemberIds, 'clan:war_score_update', {
+                    warId: war._id.toString(),
+                    challengerScore: war.challengerScore,
+                    defenderScore: war.defenderScore,
+                    matchIndex,
+                    winningSide,
+                });
+            }
+            catch { }
             // Check if war is done
             await this.checkWarCompletion(warId);
             return war;
@@ -775,6 +937,26 @@ class ClanService {
                     defenderClan.totalPoints += half;
                 }
                 await Promise.all([challengerClan.save(), defenderClan.save()]);
+                // Log war completion activity
+                if (war.winner === 'challenger') {
+                    await this.logActivity(challengerClan._id.toString(), 'war_won', challengerClan.leader.toString(), `Won war vs [${defenderClan.tag}]! +${war.pointsStake} pts`, war.pointsStake);
+                    await this.logActivity(defenderClan._id.toString(), 'war_lost', defenderClan.leader.toString(), `Lost war vs [${challengerClan.tag}]`);
+                }
+                else if (war.winner === 'defender') {
+                    await this.logActivity(defenderClan._id.toString(), 'war_won', defenderClan.leader.toString(), `Won war vs [${challengerClan.tag}]! +${war.pointsStake} pts`, war.pointsStake);
+                    await this.logActivity(challengerClan._id.toString(), 'war_lost', challengerClan.leader.toString(), `Lost war vs [${defenderClan.tag}]`);
+                }
+                else {
+                    await this.logActivity(challengerClan._id.toString(), 'war_tied', challengerClan.leader.toString(), `War vs [${defenderClan.tag}] ended in a tie`);
+                    await this.logActivity(defenderClan._id.toString(), 'war_tied', defenderClan.leader.toString(), `War vs [${challengerClan.tag}] ended in a tie`);
+                }
+                // Update mission progress for war wins
+                if (war.winner === 'challenger') {
+                    await this.updateMissionProgress(challengerClan._id.toString(), 'wars_won', 1);
+                }
+                else if (war.winner === 'defender') {
+                    await this.updateMissionProgress(defenderClan._id.toString(), 'wars_won', 1);
+                }
                 // Notify both clans
                 const winnerTag = war.winner === 'challenger'
                     ? challengerClan.tag
@@ -859,6 +1041,716 @@ class ClanService {
             logger_1.default.error('getWar error:', error);
             throw error;
         }
+    }
+    // ─── Activity Feed ──────────────────────────────────────────────────────
+    /**
+     * Log an activity to the clan's activity feed. Keeps last 50 entries.
+     */
+    async logActivity(clanId, type, userId, message, points) {
+        try {
+            const entry = {
+                type,
+                userId: new mongoose_1.default.Types.ObjectId(userId),
+                message,
+                points: points || 0,
+                createdAt: new Date(),
+            };
+            await Clan_1.Clan.findByIdAndUpdate(clanId, {
+                $push: {
+                    activityLog: {
+                        $each: [entry],
+                        $slice: -50, // keep last 50
+                    },
+                },
+            });
+        }
+        catch (error) {
+            logger_1.default.warn('logActivity error:', error);
+        }
+    }
+    /**
+     * Get the activity log for a clan with populated user info.
+     */
+    async getActivityLog(clanId) {
+        try {
+            const clan = await Clan_1.Clan.findById(clanId)
+                .select('activityLog')
+                .populate('activityLog.userId', 'firstName lastName profilePhoto');
+            if (!clan)
+                return [];
+            // Return in reverse chronological order
+            return (clan.activityLog || []).reverse();
+        }
+        catch (error) {
+            logger_1.default.error('getActivityLog error:', error);
+            return [];
+        }
+    }
+    // ─── Clan Weekly Missions ─────────────────────────────────────────────
+    /**
+     * Generate 3 random weekly missions for a clan.
+     */
+    async generateWeeklyMissions(clanId) {
+        try {
+            // Check if missions already exist for current week
+            const now = new Date();
+            const startOfWeek = new Date(now);
+            startOfWeek.setDate(now.getDate() - now.getDay());
+            startOfWeek.setHours(0, 0, 0, 0);
+            const endOfWeek = new Date(startOfWeek);
+            endOfWeek.setDate(startOfWeek.getDate() + 7);
+            const existing = await ClanMission_1.ClanMission.find({
+                clan: clanId,
+                startDate: { $gte: startOfWeek },
+                endDate: { $lte: endOfWeek },
+            });
+            if (existing.length > 0) {
+                return existing;
+            }
+            const missionTemplates = [
+                { type: 'points_earned', title: 'Point Collectors', description: 'Earn clan points from member activities', targets: [200, 500, 1000], rewards: [100, 200, 400] },
+                { type: 'games_won', title: 'Game Masters', description: 'Win games as a clan', targets: [5, 10, 20], rewards: [75, 150, 300] },
+                { type: 'wars_won', title: 'War Champions', description: 'Win clan wars', targets: [1, 2, 3], rewards: [150, 300, 500] },
+                { type: 'members_active', title: 'Active Squad', description: 'Have active members contributing this week', targets: [3, 5, 8], rewards: [80, 160, 250] },
+                { type: 'challenges_completed', title: 'Challenge Seekers', description: 'Complete challenges as clan members', targets: [5, 10, 15], rewards: [100, 200, 350] },
+            ];
+            // Pick 3 random unique mission types
+            const shuffled = missionTemplates.sort(() => Math.random() - 0.5);
+            const selected = shuffled.slice(0, 3);
+            const missions = [];
+            for (const template of selected) {
+                const difficultyIndex = Math.floor(Math.random() * 3);
+                const mission = await ClanMission_1.ClanMission.create({
+                    clan: clanId,
+                    title: template.title,
+                    description: template.description,
+                    target: template.targets[difficultyIndex],
+                    progress: 0,
+                    reward: template.rewards[difficultyIndex],
+                    type: template.type,
+                    startDate: startOfWeek,
+                    endDate: endOfWeek,
+                    completed: false,
+                });
+                missions.push(mission);
+            }
+            await this.logActivity(clanId, 'missions_generated', clanId, 'New weekly missions are available!');
+            logger_1.default.info(`Generated ${missions.length} weekly missions for clan ${clanId}`);
+            return missions;
+        }
+        catch (error) {
+            logger_1.default.error('generateWeeklyMissions error:', error);
+            throw error;
+        }
+    }
+    /**
+     * Update mission progress and check for completion.
+     */
+    async updateMissionProgress(clanId, type, amount) {
+        try {
+            const now = new Date();
+            const missions = await ClanMission_1.ClanMission.find({
+                clan: clanId,
+                type,
+                completed: false,
+                startDate: { $lte: now },
+                endDate: { $gte: now },
+            });
+            for (const mission of missions) {
+                mission.progress = Math.min(mission.progress + amount, mission.target);
+                if (mission.progress >= mission.target && !mission.completed) {
+                    mission.completed = true;
+                    mission.completedAt = new Date();
+                    // Award clan points
+                    await this.addClanPoints(clanId, clanId, mission.reward, `Mission completed: ${mission.title}`);
+                    // Log activity
+                    await this.logActivity(clanId, 'mission_completed', clanId, `Mission "${mission.title}" completed! +${mission.reward} pts`, mission.reward);
+                    // Notify all members
+                    const clan = await Clan_1.Clan.findById(clanId);
+                    if (clan) {
+                        for (const member of clan.members) {
+                            try {
+                                await notification_service_1.default.createNotification({
+                                    user: member.user.toString(),
+                                    type: 'achievement',
+                                    title: 'Mission Completed!',
+                                    body: `Your clan completed "${mission.title}" and earned ${mission.reward} bonus points!`,
+                                    data: { clanId: clan._id.toString() },
+                                });
+                            }
+                            catch (e) {
+                                // skip individual notification failures
+                            }
+                        }
+                    }
+                    logger_1.default.info(`Clan ${clanId} completed mission: ${mission.title}`);
+                }
+                await mission.save();
+            }
+        }
+        catch (error) {
+            logger_1.default.warn('updateMissionProgress error:', error);
+        }
+    }
+    /**
+     * Get active missions for a clan (current week).
+     */
+    async getActiveMissions(clanId) {
+        try {
+            const now = new Date();
+            return ClanMission_1.ClanMission.find({
+                clan: clanId,
+                startDate: { $lte: now },
+                endDate: { $gte: now },
+            }).sort({ completed: 1, createdAt: 1 });
+        }
+        catch (error) {
+            logger_1.default.error('getActiveMissions error:', error);
+            return [];
+        }
+    }
+    // ─── Treasury ─────────────────────────────────────────────────────────
+    /**
+     * Donate points to clan treasury.
+     */
+    async donateToTreasury(clanId, userId, amount) {
+        try {
+            if (amount < 10) {
+                throw new Error('Minimum donation is 10 points.');
+            }
+            const clan = await Clan_1.Clan.findById(clanId);
+            if (!clan)
+                throw new Error('Clan not found.');
+            const isMember = clan.members.some((m) => m.user.toString() === userId);
+            if (!isMember)
+                throw new Error('You are not a member of this clan.');
+            // Deduct from user points
+            await points_service_1.default.deductPoints({
+                userId,
+                amount,
+                type: 'spent',
+                reason: 'Clan treasury donation',
+                metadata: { action: 'clan_donation', clanId },
+            });
+            // Add to treasury (with multiplier from perks)
+            const treasuryMultiplier = this.getTreasuryMultiplier(clan.level);
+            const effectiveAmount = Math.round(amount * treasuryMultiplier);
+            clan.treasury = (clan.treasury || 0) + effectiveAmount;
+            await clan.save();
+            // Log activity
+            const bonusText = treasuryMultiplier > 1 ? ` (${treasuryMultiplier}x perk bonus!)` : '';
+            await this.logActivity(clanId, 'donation', userId, `donated ${effectiveAmount} pts to the treasury${bonusText}`, effectiveAmount);
+            // Notify leader
+            try {
+                await notification_service_1.default.createNotification({
+                    user: clan.leader.toString(),
+                    type: 'system',
+                    title: 'Treasury Donation',
+                    body: `A member donated ${effectiveAmount} points to your clan treasury!`,
+                    data: { clanId: clan._id.toString() },
+                });
+            }
+            catch (e) {
+                logger_1.default.warn('Donation notification error:', e);
+            }
+            logger_1.default.info(`User ${userId} donated ${effectiveAmount} pts to clan ${clan.tag} treasury`);
+            return { treasury: clan.treasury };
+        }
+        catch (error) {
+            logger_1.default.error('donateToTreasury error:', error);
+            throw error;
+        }
+    }
+    /**
+     * Get treasury history (donations from activity log).
+     */
+    async getTreasuryHistory(clanId) {
+        try {
+            const clan = await Clan_1.Clan.findById(clanId)
+                .select('treasury activityLog')
+                .populate('activityLog.userId', 'firstName lastName profilePhoto');
+            if (!clan)
+                throw new Error('Clan not found.');
+            const donations = (clan.activityLog || [])
+                .filter((a) => a.type === 'donation')
+                .reverse();
+            return {
+                treasury: clan.treasury || 0,
+                donations,
+            };
+        }
+        catch (error) {
+            logger_1.default.error('getTreasuryHistory error:', error);
+            throw error;
+        }
+    }
+    // ─── Streaks ──────────────────────────────────────────────────────────
+    /**
+     * Update the clan's activity streak.
+     */
+    async updateStreak(clanId) {
+        try {
+            const clan = await Clan_1.Clan.findById(clanId);
+            if (!clan)
+                return;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            if (!clan.streak) {
+                clan.streak = { current: 1, best: 1, lastActiveDate: today };
+                await clan.save();
+                return;
+            }
+            const lastActive = clan.streak.lastActiveDate ? new Date(clan.streak.lastActiveDate) : null;
+            if (lastActive) {
+                lastActive.setHours(0, 0, 0, 0);
+            }
+            if (lastActive && lastActive.getTime() === today.getTime()) {
+                // Already active today, no change
+                return;
+            }
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            if (lastActive && lastActive.getTime() === yesterday.getTime()) {
+                // Consecutive day
+                clan.streak.current += 1;
+            }
+            else {
+                // Streak broken or first activity
+                clan.streak.current = 1;
+            }
+            clan.streak.lastActiveDate = today;
+            if (clan.streak.current > clan.streak.best) {
+                clan.streak.best = clan.streak.current;
+            }
+            await clan.save();
+            // Notify on streak milestones
+            const milestones = [7, 14, 30];
+            if (milestones.includes(clan.streak.current)) {
+                await this.logActivity(clanId, 'streak_milestone', clanId, `Reached a ${clan.streak.current}-day activity streak!`);
+                for (const member of clan.members) {
+                    try {
+                        await notification_service_1.default.createNotification({
+                            user: member.user.toString(),
+                            type: 'achievement',
+                            title: 'Streak Milestone!',
+                            body: `Your clan has a ${clan.streak.current}-day activity streak! ${clan.streak.current >= 14 ? '2x' : '1.5x'} point bonus active!`,
+                            data: { clanId: clan._id.toString() },
+                        });
+                    }
+                    catch (e) {
+                        // skip
+                    }
+                }
+            }
+            logger_1.default.info(`Clan ${clan.tag} streak: ${clan.streak.current} days`);
+        }
+        catch (error) {
+            logger_1.default.warn('updateStreak error:', error);
+        }
+    }
+    // ─── Clan Chat ────────────────────────────────────────────────────────
+    /**
+     * Get the chat match ID for a clan.
+     */
+    async getChatMatchId(clanId) {
+        try {
+            const clan = await Clan_1.Clan.findById(clanId).select('chatMatchId members leader');
+            if (!clan)
+                return null;
+            // Generate a real Match document if missing
+            if (!clan.chatMatchId || clan.chatMatchId.startsWith('clan_')) {
+                const { Match } = await Promise.resolve().then(() => __importStar(require('../models')));
+                const leaderId = clan.leader;
+                const user1 = clan.members[0]?.user || leaderId;
+                const user2 = clan.members.length > 1 ? clan.members[1].user : leaderId;
+                try {
+                    const match = new Match({
+                        user1,
+                        user2,
+                        type: 'match',
+                        status: 'active',
+                        matchedAt: new Date(),
+                    });
+                    await match.save();
+                    clan.chatMatchId = match._id.toString();
+                    await clan.save();
+                    logger_1.default.info(`Created chat match ${match._id} for clan ${clan._id}`);
+                }
+                catch (e) {
+                    logger_1.default.error('Failed to create clan chat match:', e);
+                    throw e;
+                }
+            }
+            return clan.chatMatchId;
+        }
+        catch (error) {
+            logger_1.default.error('getChatMatchId error:', error);
+            return null;
+        }
+    }
+    // ─── Perks System ───────────────────────────────────────────────────
+    /**
+     * Level-based perks that unlock automatically.
+     */
+    static LEVEL_PERKS = [
+        { id: 'points_boost_10', name: 'Point Boost I', description: '+10% points from all activities', icon: 'trending-up', requiredLevel: 2, effect: { type: 'points_multiplier', value: 0.10 } },
+        { id: 'extra_mission', name: 'Extra Mission', description: '+1 weekly mission slot', icon: 'flag', requiredLevel: 3, effect: { type: 'extra_missions', value: 1 } },
+        { id: 'war_bonus_15', name: 'War Bonus', description: '+15% war stake winnings', icon: 'flame', requiredLevel: 5, effect: { type: 'war_bonus', value: 0.15 } },
+        { id: 'points_boost_25', name: 'Point Boost II', description: '+25% points from all activities', icon: 'rocket', requiredLevel: 7, effect: { type: 'points_multiplier', value: 0.25 } },
+        { id: 'max_members_10', name: 'Expanded Roster', description: '+10 max member slots', icon: 'people', requiredLevel: 8, effect: { type: 'max_members', value: 10 } },
+        { id: 'double_treasury', name: 'Treasury Mastery', description: 'Donations worth 2x to treasury', icon: 'diamond', requiredLevel: 10, effect: { type: 'treasury_multiplier', value: 2 } },
+    ];
+    /**
+     * Shop items purchasable with treasury points.
+     */
+    static SHOP_ITEMS = [
+        { id: 'xp_boost_24h', name: 'XP Surge', description: '2x clan points for 24 hours', icon: 'flash', cost: 200, type: 'boost', duration: 24, effect: { type: 'points_multiplier', value: 1.0 } },
+        { id: 'war_shield_24h', name: 'War Shield', description: 'Decline wars without penalty for 24h', icon: 'shield-checkmark', cost: 150, type: 'boost', duration: 24, effect: { type: 'war_shield', value: 1 } },
+        { id: 'mission_refresh', name: 'Mission Refresh', description: 'Reroll weekly missions (one-time)', icon: 'refresh', cost: 100, type: 'boost', effect: { type: 'mission_refresh', value: 1 } },
+        { id: 'member_slots_5', name: '+5 Member Slots', description: 'Permanently increase max members by 5', icon: 'person-add', cost: 500, type: 'upgrade', effect: { type: 'max_members', value: 5 } },
+        { id: 'badge_elite', name: 'Elite Badge', description: 'Show the Elite badge on your clan profile', icon: 'ribbon', cost: 800, type: 'cosmetic', requiredLevel: 3 },
+        { id: 'badge_legendary', name: 'Legendary Badge', description: 'Show the Legendary badge on your clan profile', icon: 'medal', cost: 1500, type: 'cosmetic', requiredLevel: 5 },
+        { id: 'war_slots_extra', name: 'Extra War Slot', description: 'Allow 2 active wars simultaneously', icon: 'git-branch', cost: 1000, type: 'upgrade', requiredLevel: 4, effect: { type: 'extra_war_slots', value: 1 } },
+        { id: 'point_rain', name: 'Point Rain', description: 'All members get 50 bonus points', icon: 'gift', cost: 300, type: 'boost', effect: { type: 'point_rain', value: 50 } },
+    ];
+    /**
+     * Get perks unlocked for a clan based on its level.
+     */
+    getClanPerks(level) {
+        return ClanService.LEVEL_PERKS.filter(p => p.requiredLevel <= level);
+    }
+    /**
+     * Get all level perks with unlock status for a clan.
+     */
+    getAllPerksWithStatus(level) {
+        return ClanService.LEVEL_PERKS.map(p => ({
+            ...p,
+            unlocked: p.requiredLevel <= level,
+        }));
+    }
+    /**
+     * Get shop items available for a clan, with purchased status.
+     */
+    async getShopItems(clanId) {
+        try {
+            const clan = await Clan_1.Clan.findById(clanId).select('level purchasedUpgrades');
+            if (!clan)
+                throw new Error('Clan not found.');
+            const now = new Date();
+            return ClanService.SHOP_ITEMS.map(item => {
+                const purchase = (clan.purchasedUpgrades || []).find(p => p.itemId === item.id);
+                const isPermanent = !item.duration;
+                const isActive = purchase ? (isPermanent || (purchase.expiresAt && purchase.expiresAt > now)) : false;
+                const meetsLevel = !item.requiredLevel || clan.level >= item.requiredLevel;
+                return {
+                    ...item,
+                    purchased: !!purchase,
+                    active: !!isActive,
+                    locked: !meetsLevel,
+                };
+            });
+        }
+        catch (error) {
+            logger_1.default.error('getShopItems error:', error);
+            throw error;
+        }
+    }
+    /**
+     * Purchase a shop item using treasury funds. Leader/co-leader only.
+     */
+    async purchaseShopItem(clanId, userId, itemId) {
+        try {
+            const clan = await Clan_1.Clan.findById(clanId);
+            if (!clan)
+                throw new Error('Clan not found.');
+            const member = clan.members.find(m => m.user.toString() === userId);
+            if (!member || (member.role !== 'leader' && member.role !== 'co-leader')) {
+                throw new Error('Only leaders and co-leaders can make purchases.');
+            }
+            const item = ClanService.SHOP_ITEMS.find(i => i.id === itemId);
+            if (!item)
+                throw new Error('Item not found.');
+            if (item.requiredLevel && clan.level < item.requiredLevel) {
+                throw new Error(`Clan must be level ${item.requiredLevel} to purchase this item.`);
+            }
+            if ((clan.treasury || 0) < item.cost) {
+                throw new Error('Insufficient treasury funds.');
+            }
+            // Check if already purchased (for permanent items)
+            const existingPurchase = (clan.purchasedUpgrades || []).find(p => p.itemId === itemId);
+            if (existingPurchase && !item.duration) {
+                // Permanent items can only be bought once (except stackable ones like member_slots)
+                if (item.id !== 'member_slots_5') {
+                    throw new Error('This item has already been purchased.');
+                }
+            }
+            // Check if boost is already active
+            if (item.duration && existingPurchase?.expiresAt && existingPurchase.expiresAt > new Date()) {
+                throw new Error('This boost is still active.');
+            }
+            // Deduct from treasury
+            clan.treasury -= item.cost;
+            // Apply the purchase
+            const expiresAt = item.duration ? new Date(Date.now() + item.duration * 60 * 60 * 1000) : undefined;
+            if (existingPurchase && item.duration) {
+                // Renew the boost
+                existingPurchase.purchasedAt = new Date();
+                existingPurchase.expiresAt = expiresAt;
+            }
+            else {
+                clan.purchasedUpgrades.push({
+                    itemId: item.id,
+                    purchasedAt: new Date(),
+                    expiresAt,
+                });
+            }
+            // Apply immediate effects
+            if (item.effect) {
+                switch (item.effect.type) {
+                    case 'max_members':
+                        clan.maxMembers += item.effect.value;
+                        break;
+                    case 'point_rain':
+                        // Give all members bonus points
+                        for (const m of clan.members) {
+                            await this.addClanPoints(clanId, m.user.toString(), item.effect.value, 'Point Rain bonus');
+                        }
+                        break;
+                    case 'mission_refresh':
+                        // Delete current missions so new ones can be generated
+                        const { ClanMission: ClanMissionModel } = await Promise.resolve().then(() => __importStar(require('../models/ClanMission')));
+                        const now = new Date();
+                        await ClanMissionModel.deleteMany({
+                            clan: clanId,
+                            completed: false,
+                            startDate: { $lte: now },
+                            endDate: { $gte: now },
+                        });
+                        break;
+                }
+            }
+            // Add badge if cosmetic
+            if (item.type === 'cosmetic') {
+                const badgeName = item.id.replace('badge_', '');
+                if (!clan.badges.includes(badgeName)) {
+                    clan.badges.push(badgeName);
+                }
+            }
+            await clan.save();
+            // Log activity
+            await this.logActivity(clanId, 'shop_purchase', userId, `purchased "${item.name}" from the shop`, item.cost);
+            logger_1.default.info(`Clan ${clan.tag} purchased ${item.name} for ${item.cost} treasury pts`);
+            return { success: true, treasury: clan.treasury, item };
+        }
+        catch (error) {
+            logger_1.default.error('purchaseShopItem error:', error);
+            throw error;
+        }
+    }
+    /**
+     * Get active boost multipliers for a clan (used in point calculations).
+     */
+    async getActiveBoostMultiplier(clanId) {
+        try {
+            const clan = await Clan_1.Clan.findById(clanId).select('level purchasedUpgrades');
+            if (!clan)
+                return 0;
+            let bonus = 0;
+            const now = new Date();
+            // Level perks
+            const levelPerks = this.getClanPerks(clan.level);
+            for (const perk of levelPerks) {
+                if (perk.effect.type === 'points_multiplier') {
+                    bonus += perk.effect.value;
+                }
+            }
+            // Shop boosts
+            for (const purchase of clan.purchasedUpgrades || []) {
+                if (purchase.expiresAt && purchase.expiresAt < now)
+                    continue;
+                const item = ClanService.SHOP_ITEMS.find(i => i.id === purchase.itemId);
+                if (item?.effect?.type === 'points_multiplier') {
+                    bonus += item.effect.value;
+                }
+            }
+            return bonus;
+        }
+        catch (error) {
+            logger_1.default.warn('getActiveBoostMultiplier error:', error);
+            return 0;
+        }
+    }
+    /**
+     * Get the treasury donation multiplier (from level perks).
+     */
+    getTreasuryMultiplier(level) {
+        const perk = ClanService.LEVEL_PERKS.find(p => p.id === 'double_treasury' && p.requiredLevel <= level);
+        return perk ? perk.effect.value : 1;
+    }
+    // ─── Achievements ──────────────────────────────────────────────────
+    static ACHIEVEMENT_DEFS = [
+        { id: 'first_war', name: 'First Blood', description: 'Win your first clan war', icon: 'flame', check: (c) => c.warsWon >= 1 },
+        { id: 'war_veteran', name: 'War Veteran', description: 'Win 10 clan wars', icon: 'shield', check: (c) => c.warsWon >= 10 },
+        { id: 'war_legend', name: 'War Legend', description: 'Win 50 clan wars', icon: 'shield-checkmark', check: (c) => c.warsWon >= 50 },
+        { id: 'points_1k', name: 'Rising Star', description: 'Reach 1,000 total points', icon: 'star', check: (c) => c.totalPoints >= 1000 },
+        { id: 'points_10k', name: 'Powerhouse', description: 'Reach 10,000 total points', icon: 'star-half', check: (c) => c.totalPoints >= 10000 },
+        { id: 'points_50k', name: 'Unstoppable', description: 'Reach 50,000 total points', icon: 'sunny', check: (c) => c.totalPoints >= 50000 },
+        { id: 'full_house', name: 'Full House', description: 'Fill your clan to max capacity', icon: 'people', check: (c) => c.members.length >= c.maxMembers },
+        { id: 'streak_7', name: 'On Fire', description: 'Reach a 7-day activity streak', icon: 'flash', check: (c) => c.streak?.current >= 7 },
+        { id: 'streak_30', name: 'Relentless', description: 'Reach a 30-day activity streak', icon: 'flash-outline', check: (c) => c.streak?.current >= 30 },
+        { id: 'level_5', name: 'Established', description: 'Reach clan level 5', icon: 'diamond-outline', check: (c) => c.level >= 5 },
+        { id: 'level_10', name: 'Elite Force', description: 'Reach clan level 10', icon: 'diamond', check: (c) => c.level >= 10 },
+        { id: 'treasury_5k', name: 'War Chest', description: 'Accumulate 5,000 treasury points', icon: 'wallet', check: (c) => (c.treasury || 0) >= 5000 },
+    ];
+    async checkAchievements(clanId) {
+        try {
+            const clan = await Clan_1.Clan.findById(clanId);
+            if (!clan)
+                return [];
+            const newAchievements = [];
+            for (const ach of ClanService.ACHIEVEMENT_DEFS) {
+                if ((clan.achievements || []).includes(ach.id))
+                    continue;
+                if (ach.check(clan)) {
+                    newAchievements.push(ach.id);
+                }
+            }
+            if (newAchievements.length > 0) {
+                clan.achievements = [...(clan.achievements || []), ...newAchievements];
+                await clan.save();
+                for (const achId of newAchievements) {
+                    const ach = ClanService.ACHIEVEMENT_DEFS.find(a => a.id === achId);
+                    await this.logActivity(clanId, 'achievement', clanId, `Unlocked "${ach.name}" — ${ach.description}`);
+                    // Notify all members
+                    for (const member of clan.members) {
+                        try {
+                            await notification_service_1.default.createNotification({
+                                user: member.user.toString(),
+                                type: 'achievement',
+                                title: 'Clan Achievement Unlocked!',
+                                body: `Your clan earned "${ach.name}" — ${ach.description}`,
+                                data: { clanId: clan._id.toString() },
+                            });
+                        }
+                        catch { }
+                    }
+                }
+                logger_1.default.info(`Clan ${clan.tag} unlocked ${newAchievements.length} achievements: ${newAchievements.join(', ')}`);
+            }
+            return newAchievements;
+        }
+        catch (error) {
+            logger_1.default.warn('checkAchievements error:', error);
+            return [];
+        }
+    }
+    getAchievementsWithStatus(clan) {
+        return ClanService.ACHIEVEMENT_DEFS.map(a => ({
+            ...a,
+            check: undefined,
+            unlocked: (clan.achievements || []).includes(a.id),
+        }));
+    }
+    // ─── Member Contribution Leaderboard ───────────────────────────────
+    getMemberLeaderboard(clan) {
+        return [...clan.members]
+            .sort((a, b) => (b.weeklyContribution || 0) - (a.weeklyContribution || 0))
+            .map((m, i) => ({
+            user: m.user,
+            role: m.role,
+            weeklyContribution: m.weeklyContribution || 0,
+            totalContributed: m.pointsContributed || 0,
+            rank: i + 1,
+        }));
+    }
+    // ─── Head-to-Head History ──────────────────────────────────────────
+    async getHeadToHead(clanId, opponentClanId) {
+        try {
+            const wars = await Clan_1.ClanWar.find({
+                $or: [
+                    { challenger: clanId, defender: opponentClanId },
+                    { challenger: opponentClanId, defender: clanId },
+                ],
+                status: 'completed',
+            }).lean();
+            let wins = 0, losses = 0, draws = 0;
+            for (const war of wars) {
+                const isChallenger = war.challenger.toString() === clanId;
+                if (war.winner === 'tie') {
+                    draws++;
+                }
+                else if ((war.winner === 'challenger' && isChallenger) || (war.winner === 'defender' && !isChallenger)) {
+                    wins++;
+                }
+                else {
+                    losses++;
+                }
+            }
+            return { wins, losses, draws, totalWars: wars.length };
+        }
+        catch (error) {
+            logger_1.default.error('getHeadToHead error:', error);
+            return { wins: 0, losses: 0, draws: 0, totalWars: 0 };
+        }
+    }
+    // ─── Announcements ─────────────────────────────────────────────────
+    async setAnnouncement(clanId, userId, text) {
+        const clan = await Clan_1.Clan.findById(clanId);
+        if (!clan)
+            throw new Error('Clan not found.');
+        if (clan.leader.toString() !== userId)
+            throw new Error('Only the leader can set announcements.');
+        clan.announcement = text.slice(0, 500);
+        await clan.save();
+        if (text) {
+            await this.logActivity(clanId, 'announcement', userId, 'updated the clan announcement');
+        }
+        return clan.announcement;
+    }
+    // ─── Seasonal Rankings ─────────────────────────────────────────────
+    async resetSeason() {
+        try {
+            const topClans = await Clan_1.Clan.find().sort({ 'season.points': -1 }).limit(3);
+            const seasonBadges = ['season_gold', 'season_silver', 'season_bronze'];
+            const seasonRewards = [3000, 1500, 750];
+            for (let i = 0; i < topClans.length; i++) {
+                const clan = topClans[i];
+                if ((clan.season?.points || 0) <= 0)
+                    continue;
+                clan.totalPoints += seasonRewards[i];
+                if (!clan.badges.includes(seasonBadges[i])) {
+                    clan.badges.push(seasonBadges[i]);
+                }
+                await clan.save();
+                for (const member of clan.members) {
+                    try {
+                        await notification_service_1.default.createNotification({
+                            user: member.user.toString(),
+                            type: 'achievement',
+                            title: 'Season Ended!',
+                            body: `Your clan [${clan.tag}] placed #${i + 1} this season and earned ${seasonRewards[i]} bonus points!`,
+                            data: { clanId: clan._id.toString() },
+                        });
+                    }
+                    catch { }
+                }
+            }
+            // Reset season points and increment season number
+            const currentSeason = topClans[0]?.season?.number || 1;
+            await Clan_1.Clan.updateMany({}, {
+                $set: { 'season.points': 0, 'season.number': currentSeason + 1 },
+            });
+            logger_1.default.info(`Season ${currentSeason} completed. New season: ${currentSeason + 1}`);
+        }
+        catch (error) {
+            logger_1.default.error('resetSeason error:', error);
+        }
+    }
+    async getSeasonLeaderboard(limit = 50) {
+        return Clan_1.Clan.find()
+            .populate('leader', 'firstName lastName profilePhoto')
+            .sort({ 'season.points': -1 })
+            .limit(limit);
     }
 }
 exports.default = new ClanService();
