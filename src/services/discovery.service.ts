@@ -1,5 +1,6 @@
 // src/services/discovery.service.ts
 import { User, IUserDocument } from '../models/User';
+import cacheService from './cache.service';
 import logger from '../utils/logger';
 
 export interface DiscoveryFilters {
@@ -76,8 +77,16 @@ class DiscoveryService {
 
     const skip = (page - 1) * limit;
 
-    // Get current user for exclusions and compatibility
-    const currentUser = await User.findById(currentUserId);
+    // Get current user for exclusions (cached 60s to avoid repeated DB hits under load)
+    const currentUser = await cacheService.getOrSet(
+      `user:exclusions:${currentUserId}`,
+      async () => {
+        const u = await User.findById(currentUserId).select('blockedUsers likes').lean();
+        if (!u) throw new Error('User not found');
+        return u;
+      },
+      60
+    );
     if (!currentUser) {
       throw new Error('User not found');
     }
@@ -238,7 +247,7 @@ class DiscoveryService {
         .select(
           'firstName lastName profilePhoto photos bio occupation ' +
           'location preferences lifestyle interests verified gender ' +
-          'dateOfBirth createdAt lastActive subscription metadata'
+          'dateOfBirth createdAt lastActive subscription metadata equippedCosmetics'
         )
         .sort(sortOptions)
         .skip(skip)
@@ -271,6 +280,34 @@ class DiscoveryService {
       // Clan lookup is best-effort
     }
 
+    // Fetch equipped cosmetic styles in batch
+    let cosmeticStyleMap: Record<string, any> = {};
+    try {
+      const { Cosmetic } = await import('../models/Cosmetic');
+      const allCosmeticIds = users
+        .flatMap(u => {
+          const eq = (u as any).equippedCosmetics || {};
+          return [eq.profileFrame, eq.chatBubble, eq.badge, eq.nameEffect].filter(Boolean);
+        });
+      if (allCosmeticIds.length > 0) {
+        const cosmeticDocs = await Cosmetic.find({ _id: { $in: allCosmeticIds } })
+          .select('name type style icon')
+          .lean();
+        const cosmeticMap = new Map(cosmeticDocs.map((d: any) => [d._id.toString(), d]));
+        for (const u of users) {
+          const eq = (u as any).equippedCosmetics || {};
+          const resolved: any = {};
+          if (eq.profileFrame && cosmeticMap.has(eq.profileFrame)) resolved.profileFrame = cosmeticMap.get(eq.profileFrame);
+          if (eq.chatBubble && cosmeticMap.has(eq.chatBubble)) resolved.chatBubble = cosmeticMap.get(eq.chatBubble);
+          if (eq.badge && cosmeticMap.has(eq.badge)) resolved.badge = cosmeticMap.get(eq.badge);
+          if (eq.nameEffect && cosmeticMap.has(eq.nameEffect)) resolved.nameEffect = cosmeticMap.get(eq.nameEffect);
+          if (Object.keys(resolved).length > 0) cosmeticStyleMap[u._id.toString()] = resolved;
+        }
+      }
+    } catch (e) {
+      // Cosmetics lookup is best-effort
+    }
+
     // Transform users and calculate age
     const transformedUsers = users.map(user => {
       const age = user.dateOfBirth
@@ -295,6 +332,7 @@ class DiscoveryService {
         gender: user.gender,
         age,
         clan: clanMap[user._id.toString()] || null,
+        cosmetics: cosmeticStyleMap[user._id.toString()] || null,
       };
     });
 

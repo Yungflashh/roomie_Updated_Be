@@ -27,6 +27,7 @@ import reviewRoutes from './review.routes';
 import premiumRoutes from './premium.routes';
 import aiRoutes from './ai.routes';
 import clanRoutes from './clan.routes';
+import cosmeticRoutes from './cosmetic.routes';
 // weeklyChallengeRoutes consolidated into challengeRoutes
 // import weeklyChallengeRoutes from './weeklyChallenge.routes';
 
@@ -66,6 +67,7 @@ router.use('/reviews', reviewRoutes);
 router.use('/premium', premiumRoutes);
 router.use('/ai', aiRoutes);
 router.use('/clans', clanRoutes);
+router.use('/cosmetics', cosmeticRoutes);
 // router.use('/challenges', weeklyChallengeRoutes);
 
 

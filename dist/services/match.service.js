@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -394,29 +427,69 @@ class MatchService {
             .sort({ lastMessageAt: -1, matchedAt: -1 })
             .skip(skip)
             .limit(limit)
-            .populate('user1 user2', 'firstName lastName profilePhoto bio occupation isActive lastSeen verified subscription')
+            .populate('user1 user2', 'firstName lastName profilePhoto bio occupation isActive lastSeen verified subscription equippedCosmetics')
             .populate('listingId', 'title photos price');
         const total = await models_1.Match.countDocuments(matchFilter);
-        // Get last message for each match
-        const formattedMatches = await Promise.all(matches.map(async (match) => {
+        // Batch-fetch last messages for all matches in ONE query instead of N+1
+        const matchIds = matches.map(m => m._id);
+        const lastMessages = await models_1.Message.aggregate([
+            { $match: { match: { $in: matchIds }, deleted: false } },
+            { $sort: { createdAt: -1 } },
+            { $group: {
+                    _id: '$match',
+                    type: { $first: '$type' },
+                    content: { $first: '$content' },
+                    sender: { $first: '$sender' },
+                    createdAt: { $first: '$createdAt' },
+                    read: { $first: '$read' },
+                } },
+        ]);
+        const lastMessageMap = new Map(lastMessages.map(m => [m._id.toString(), m]));
+        // Batch-resolve equipped cosmetics for all users
+        let cosmeticMap = {};
+        try {
+            const { Cosmetic } = await Promise.resolve().then(() => __importStar(require('../models/Cosmetic')));
+            const allCosmeticIds = matches.flatMap(m => {
+                const u1Eq = m.user1?.equippedCosmetics || {};
+                const u2Eq = m.user2?.equippedCosmetics || {};
+                return [u1Eq.profileFrame, u1Eq.chatBubble, u1Eq.badge, u1Eq.nameEffect,
+                    u2Eq.profileFrame, u2Eq.chatBubble, u2Eq.badge, u2Eq.nameEffect].filter(Boolean);
+            });
+            if (allCosmeticIds.length > 0) {
+                const docs = await Cosmetic.find({ _id: { $in: allCosmeticIds } }).select('name type style icon').lean();
+                for (const d of docs)
+                    cosmeticMap[d._id.toString()] = d;
+            }
+        }
+        catch { }
+        const resolveCosmetics = (eq) => {
+            if (!eq)
+                return null;
+            const r = {};
+            if (eq.profileFrame && cosmeticMap[eq.profileFrame.toString()])
+                r.profileFrame = cosmeticMap[eq.profileFrame.toString()];
+            if (eq.chatBubble && cosmeticMap[eq.chatBubble.toString()])
+                r.chatBubble = cosmeticMap[eq.chatBubble.toString()];
+            if (eq.badge && cosmeticMap[eq.badge.toString()])
+                r.badge = cosmeticMap[eq.badge.toString()];
+            if (eq.nameEffect && cosmeticMap[eq.nameEffect.toString()])
+                r.nameEffect = cosmeticMap[eq.nameEffect.toString()];
+            return Object.keys(r).length > 0 ? r : null;
+        };
+        const formattedMatches = matches.map((match) => {
             const otherUser = match.user1._id.toString() === userId
                 ? match.user2
                 : match.user1;
             const isUser1 = match.user1._id.toString() === userId;
-            // Get last message
-            const lastMessage = await models_1.Message.findOne({
-                match: match._id,
-                deleted: false,
-            })
-                .sort({ createdAt: -1 })
-                .select('type content sender createdAt read')
-                .lean();
+            const lastMessage = lastMessageMap.get(match._id.toString()) || null;
+            const cosmetics = resolveCosmetics(otherUser?.equippedCosmetics);
             return {
                 _id: match._id,
                 id: match._id,
                 type: match.type || 'match',
                 listingId: match.listingId,
                 user: otherUser,
+                cosmetics,
                 compatibilityScore: match.compatibilityScore,
                 matchedAt: match.matchedAt,
                 lastMessageAt: match.lastMessageAt || match.matchedAt,
@@ -425,7 +498,7 @@ class MatchService {
                     ? match.unreadCount.user1
                     : match.unreadCount.user2,
             };
-        }));
+        });
         return {
             matches: formattedMatches,
             pagination: {

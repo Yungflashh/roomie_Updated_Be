@@ -449,6 +449,98 @@ class PointsService {
         return await User_1.User.findOne({ pointsUsername: cleanUsername })
             .select('firstName lastName profilePhoto verified pointsUsername gamification.points gamification.level');
     }
+    /**
+     * Generate a unique referral code for user
+     */
+    async generateReferralCode(userId) {
+        const user = await User_1.User.findById(userId);
+        if (!user)
+            throw new Error('User not found');
+        // If user already has a code, return it
+        if (user.referralCode)
+            return user.referralCode;
+        // Generate a unique 6-char alphanumeric code
+        let code = '';
+        let attempts = 0;
+        do {
+            code = Math.random().toString(36).substring(2, 8).toUpperCase();
+            const existing = await User_1.User.findOne({ referralCode: code });
+            if (!existing)
+                break;
+            attempts++;
+        } while (attempts < 10);
+        user.referralCode = code;
+        await user.save();
+        logger_1.default.info(`Generated referral code ${code} for user ${userId}`);
+        return code;
+    }
+    /**
+     * Apply referral code during/after signup
+     */
+    async applyReferralCode(newUserId, code) {
+        const cleanCode = code.toUpperCase().trim();
+        const referrer = await User_1.User.findOne({ referralCode: cleanCode });
+        if (!referrer)
+            throw new Error('Invalid referral code');
+        if (referrer._id.toString() === newUserId) {
+            throw new Error('Cannot use your own referral code');
+        }
+        const newUser = await User_1.User.findById(newUserId);
+        if (!newUser)
+            throw new Error('User not found');
+        if (newUser.referredBy) {
+            throw new Error('You have already used a referral code');
+        }
+        const config = await this.getConfig();
+        // Mark referral relationship
+        newUser.referredBy = referrer._id.toString();
+        await newUser.save();
+        // Increment referrer's count
+        referrer.referralCount = (referrer.referralCount || 0) + 1;
+        await referrer.save();
+        // Award bonus to referrer
+        await this.addPoints({
+            userId: referrer._id.toString(),
+            amount: config.referralBonus || 50,
+            type: 'bonus',
+            reason: `Referral bonus — ${newUser.firstName} joined with your code`,
+            metadata: { referredUserId: newUserId, referralCode: cleanCode },
+        });
+        // Award signup bonus to new user
+        await this.addPoints({
+            userId: newUserId,
+            amount: config.referralSignupBonus || 20,
+            type: 'bonus',
+            reason: `Welcome bonus — joined with referral code`,
+            metadata: { referrerId: referrer._id.toString(), referralCode: cleanCode },
+        });
+        logger_1.default.info(`Referral applied: ${newUserId} used code ${cleanCode} from ${referrer._id}`);
+        return {
+            success: true,
+            referrerName: referrer.firstName,
+            bonusAwarded: config.referralSignupBonus || 20,
+        };
+    }
+    /**
+     * Get referral stats for a user
+     */
+    async getReferralStats(userId) {
+        const user = await User_1.User.findById(userId).select('referralCode referralCount');
+        if (!user)
+            throw new Error('User not found');
+        // Generate code if user doesn't have one yet
+        const code = user.referralCode || await this.generateReferralCode(userId);
+        // Count total points earned from referrals
+        const referralTransactions = await PointTransaction_1.PointTransaction.aggregate([
+            { $match: { user: user._id, 'metadata.referralCode': { $exists: true }, amount: { $gt: 0 } } },
+            { $group: { _id: null, total: { $sum: '$amount' } } },
+        ]);
+        return {
+            referralCode: code,
+            referralCount: user.referralCount || 0,
+            totalEarnedFromReferrals: referralTransactions[0]?.total || 0,
+        };
+    }
 }
 exports.default = new PointsService();
 //# sourceMappingURL=points.service.js.map

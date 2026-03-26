@@ -42,6 +42,7 @@ interface UserResponse {
   emailVerified?: boolean;
   subscription: any;
   gamification: any;
+  equippedCosmetics?: any;
   // Profile completion fields
   isProfileComplete: boolean;
   profileCompletionPercentage: number;
@@ -97,6 +98,7 @@ class AuthService {
       emailVerified: user.emailVerified,
       subscription: user.subscription,
       gamification: user.gamification,
+      equippedCosmetics: user.equippedCosmetics,
       // Profile completion
       isProfileComplete: profileCompletion.isComplete,
       profileCompletionPercentage: profileCompletion.percentage,

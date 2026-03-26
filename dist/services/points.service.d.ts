@@ -89,6 +89,26 @@ declare class PointsService {
      * Find user by points username
      */
     findUserByUsername(username: string): Promise<IUserDocument | null>;
+    /**
+     * Generate a unique referral code for user
+     */
+    generateReferralCode(userId: string): Promise<string>;
+    /**
+     * Apply referral code during/after signup
+     */
+    applyReferralCode(newUserId: string, code: string): Promise<{
+        success: boolean;
+        referrerName?: string;
+        bonusAwarded?: number;
+    }>;
+    /**
+     * Get referral stats for a user
+     */
+    getReferralStats(userId: string): Promise<{
+        referralCode: string;
+        referralCount: number;
+        totalEarnedFromReferrals: number;
+    }>;
 }
 declare const _default: PointsService;
 export default _default;

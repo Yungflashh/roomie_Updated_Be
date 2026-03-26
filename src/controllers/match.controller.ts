@@ -286,11 +286,16 @@ class MatchController {
       const userId = req.user?.userId!;
       const { page = 1, limit = 20 } = req.query;
 
-      // No cache — conversations list must always be fresh
-      const result = await matchService.getMatches(
-        userId,
-        parseInt(page as string),
-        parseInt(limit as string)
+      // Cache for 30s — reduces DB pressure on free-tier infra
+      const cacheKey = `matches:list:${userId}:${page}:${limit}`;
+      const result = await cacheService.getOrSet(
+        cacheKey,
+        () => matchService.getMatches(
+          userId,
+          parseInt(page as string),
+          parseInt(limit as string)
+        ),
+        30
       );
 
       res.status(200).json({

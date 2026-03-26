@@ -16,6 +16,8 @@ export interface IPointsConfigDocument extends Document {
     firstMessageBonus: number;
     firstMatchBonus: number;
     firstGameBonus: number;
+    referralBonus: number;
+    referralSignupBonus: number;
     premiumMatchDiscount: number;
     premiumGameDiscount: number;
     premiumDailyBonus: number;

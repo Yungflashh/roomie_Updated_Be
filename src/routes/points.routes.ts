@@ -99,4 +99,19 @@ router.post('/verify-payment', pointsController.verifyPayment);
  */
 router.get('/purchases', pointsController.getPurchaseHistory);
 
+/**
+ * @route   GET /api/v1/points/referral
+ * @desc    Get referral code and stats
+ * @access  Private
+ */
+router.get('/referral', pointsController.getReferralStats);
+
+/**
+ * @route   POST /api/v1/points/referral/apply
+ * @desc    Apply a referral code
+ * @access  Private
+ * @body    { code: string }
+ */
+router.post('/referral/apply', pointsController.applyReferralCode);
+
 export default router;

@@ -484,45 +484,78 @@ class MatchService {
     .sort({ lastMessageAt: -1, matchedAt: -1 })
     .skip(skip)
     .limit(limit)
-    .populate('user1 user2', 'firstName lastName profilePhoto bio occupation isActive lastSeen verified subscription')
+    .populate('user1 user2', 'firstName lastName profilePhoto bio occupation isActive lastSeen verified subscription equippedCosmetics')
     .populate('listingId', 'title photos price');
 
     const total = await Match.countDocuments(matchFilter);
 
-    // Get last message for each match
-    const formattedMatches = await Promise.all(
-      matches.map(async (match) => {
-        const otherUser = match.user1._id.toString() === userId 
-          ? match.user2 
-          : match.user1;
+    // Batch-fetch last messages for all matches in ONE query instead of N+1
+    const matchIds = matches.map(m => m._id);
+    const lastMessages = await Message.aggregate([
+      { $match: { match: { $in: matchIds }, deleted: false } },
+      { $sort: { createdAt: -1 } },
+      { $group: {
+        _id: '$match',
+        type: { $first: '$type' },
+        content: { $first: '$content' },
+        sender: { $first: '$sender' },
+        createdAt: { $first: '$createdAt' },
+        read: { $first: '$read' },
+      }},
+    ]);
+    const lastMessageMap = new Map(lastMessages.map(m => [m._id.toString(), m]));
 
-        const isUser1 = match.user1._id.toString() === userId;
+    // Batch-resolve equipped cosmetics for all users
+    let cosmeticMap: Record<string, any> = {};
+    try {
+      const { Cosmetic } = await import('../models/Cosmetic');
+      const allCosmeticIds = matches.flatMap(m => {
+        const u1Eq = (m.user1 as any)?.equippedCosmetics || {};
+        const u2Eq = (m.user2 as any)?.equippedCosmetics || {};
+        return [u1Eq.profileFrame, u1Eq.chatBubble, u1Eq.badge, u1Eq.nameEffect,
+                u2Eq.profileFrame, u2Eq.chatBubble, u2Eq.badge, u2Eq.nameEffect].filter(Boolean);
+      });
+      if (allCosmeticIds.length > 0) {
+        const docs = await Cosmetic.find({ _id: { $in: allCosmeticIds } }).select('name type style icon').lean();
+        for (const d of docs) cosmeticMap[d._id.toString()] = d;
+      }
+    } catch {}
 
-        // Get last message
-        const lastMessage = await Message.findOne({
-          match: match._id,
-          deleted: false,
-        })
-          .sort({ createdAt: -1 })
-          .select('type content sender createdAt read')
-          .lean();
+    const resolveCosmetics = (eq: any) => {
+      if (!eq) return null;
+      const r: any = {};
+      if (eq.profileFrame && cosmeticMap[eq.profileFrame.toString()]) r.profileFrame = cosmeticMap[eq.profileFrame.toString()];
+      if (eq.chatBubble && cosmeticMap[eq.chatBubble.toString()]) r.chatBubble = cosmeticMap[eq.chatBubble.toString()];
+      if (eq.badge && cosmeticMap[eq.badge.toString()]) r.badge = cosmeticMap[eq.badge.toString()];
+      if (eq.nameEffect && cosmeticMap[eq.nameEffect.toString()]) r.nameEffect = cosmeticMap[eq.nameEffect.toString()];
+      return Object.keys(r).length > 0 ? r : null;
+    };
 
-        return {
-          _id: match._id,
-          id: match._id,
-          type: match.type || 'match',
-          listingId: match.listingId,
-          user: otherUser,
-          compatibilityScore: match.compatibilityScore,
-          matchedAt: match.matchedAt,
-          lastMessageAt: match.lastMessageAt || match.matchedAt,
-          lastMessage,
-          unreadCount: isUser1
-            ? match.unreadCount.user1
-            : match.unreadCount.user2,
-        };
-      })
-    );
+    const formattedMatches = matches.map((match) => {
+      const otherUser = match.user1._id.toString() === userId
+        ? match.user2
+        : match.user1;
+
+      const isUser1 = match.user1._id.toString() === userId;
+      const lastMessage = lastMessageMap.get(match._id.toString()) || null;
+      const cosmetics = resolveCosmetics((otherUser as any)?.equippedCosmetics);
+
+      return {
+        _id: match._id,
+        id: match._id,
+        type: match.type || 'match',
+        listingId: match.listingId,
+        user: otherUser,
+        cosmetics,
+        compatibilityScore: match.compatibilityScore,
+        matchedAt: match.matchedAt,
+        lastMessageAt: match.lastMessageAt || match.matchedAt,
+        lastMessage,
+        unreadCount: isUser1
+          ? match.unreadCount.user1
+          : match.unreadCount.user2,
+      };
+    });
 
     return {
       matches: formattedMatches,

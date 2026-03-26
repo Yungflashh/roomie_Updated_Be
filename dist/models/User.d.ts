@@ -30,6 +30,9 @@ export interface IUserDocument extends Document {
         relationship: string;
     }>;
     pointsUsername?: string;
+    referralCode?: string;
+    referredBy?: string;
+    referralCount: number;
     location: {
         type: 'Point';
         coordinates: [number, number];
@@ -90,6 +93,13 @@ export interface IUserDocument extends Document {
         achievements: string[];
         streak: number;
         lastActiveDate?: Date;
+    };
+    ownedCosmetics: string[];
+    equippedCosmetics: {
+        profileFrame?: string;
+        chatBubble?: string;
+        badge?: string;
+        nameEffect?: string;
     };
     likes: string[];
     passes: string[];

@@ -33,6 +33,7 @@ interface UserResponse {
     emailVerified?: boolean;
     subscription: any;
     gamification: any;
+    equippedCosmetics?: any;
     isProfileComplete: boolean;
     profileCompletionPercentage: number;
     missingProfileFields: string[];

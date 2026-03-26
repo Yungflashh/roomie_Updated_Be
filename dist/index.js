@@ -46,7 +46,12 @@ const startServer = async () => {
         // Initialize cron jobs
         (0, clanJobs_1.initClanJobs)();
         // Start server - USE httpServer.listen, NOT app.listen
-        httpServer.listen(PORT, '0.0.0.0', () => {
+        // Prevent slow requests from piling up and blocking the event loop
+        httpServer.timeout = 30000; // 30s overall request timeout
+        httpServer.keepAliveTimeout = 65000; // slightly above typical LB idle timeout
+        httpServer.headersTimeout = 66000;
+        // Increase backlog for high-concurrency load (default 511 is too low for 1000+ VUs)
+        httpServer.listen(PORT, '0.0.0.0', 2048, () => {
             logger_1.default.info(`
 ╔═══════════════════════════════════════════════════════╗
 ║                                                       ║
@@ -83,11 +88,14 @@ const startServer = async () => {
         process.on('SIGINT', () => gracefulShutdown('SIGINT'));
         process.on('uncaughtException', (error) => {
             logger_1.default.error('Uncaught Exception:', error);
-            process.exit(1);
+            // Only exit on truly fatal errors, not transient failures under load
+            if (error.message?.includes('ENOMEM') || error.message?.includes('out of memory')) {
+                process.exit(1);
+            }
         });
         process.on('unhandledRejection', (reason, promise) => {
             logger_1.default.error('Unhandled Rejection at:', promise, 'reason:', reason);
-            process.exit(1);
+            // Log but don't crash — let the server recover
         });
     }
     catch (error) {

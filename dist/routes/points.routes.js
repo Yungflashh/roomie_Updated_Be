@@ -89,5 +89,18 @@ router.post('/verify-payment', points_controller_1.default.verifyPayment);
  * @access  Private
  */
 router.get('/purchases', points_controller_1.default.getPurchaseHistory);
+/**
+ * @route   GET /api/v1/points/referral
+ * @desc    Get referral code and stats
+ * @access  Private
+ */
+router.get('/referral', points_controller_1.default.getReferralStats);
+/**
+ * @route   POST /api/v1/points/referral/apply
+ * @desc    Apply a referral code
+ * @access  Private
+ * @body    { code: string }
+ */
+router.post('/referral/apply', points_controller_1.default.applyReferralCode);
 exports.default = router;
 //# sourceMappingURL=points.routes.js.map

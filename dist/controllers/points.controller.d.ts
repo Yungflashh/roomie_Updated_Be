@@ -64,6 +64,17 @@ declare class PointsController {
      * GET /api/v1/points/purchases
      */
     getPurchaseHistory(req: AuthRequest, res: Response): Promise<void>;
+    /**
+     * Get referral stats and code
+     * GET /api/v1/points/referral
+     */
+    getReferralStats(req: AuthRequest, res: Response): Promise<void>;
+    /**
+     * Apply a referral code
+     * POST /api/v1/points/referral/apply
+     * Body: { code: string }
+     */
+    applyReferralCode(req: AuthRequest, res: Response): Promise<void>;
 }
 declare const _default: PointsController;
 export default _default;

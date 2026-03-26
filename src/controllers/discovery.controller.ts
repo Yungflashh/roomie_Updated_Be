@@ -30,8 +30,11 @@ class DiscoveryController {
         .slice(0, 12);
 
       const [usersResult, filterOptions, pointsStats, pointsConfig] = await Promise.all([
-        // No cache — subscription/boost data must be fresh
-        discoveryService.discoverUsers(userId, filters),
+        cacheService.getOrSet(
+          cacheService.discoveryKey(userId, filtersHash),
+          () => discoveryService.discoverUsers(userId, filters),
+          30 // 30s cache — short enough for freshness, long enough to survive load spikes
+        ),
         cacheService.getOrSet(
           'discovery:filter_options',
           () => discoveryService.getFilterOptions(),

@@ -38,6 +38,7 @@ class AuthService {
             emailVerified: user.emailVerified,
             subscription: user.subscription,
             gamification: user.gamification,
+            equippedCosmetics: user.equippedCosmetics,
             // Profile completion
             isProfileComplete: profileCompletion.isComplete,
             profileCompletionPercentage: profileCompletion.percentage,

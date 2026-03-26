@@ -763,6 +763,67 @@ class PointsController {
       });
     }
   }
+  /**
+   * Get referral stats and code
+   * GET /api/v1/points/referral
+   */
+  async getReferralStats(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId!;
+      const stats = await pointsService.getReferralStats(userId);
+
+      res.status(200).json({
+        success: true,
+        data: stats,
+      });
+    } catch (error: any) {
+      logger.error('Get referral stats error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Failed to fetch referral stats',
+      });
+    }
+  }
+
+  /**
+   * Apply a referral code
+   * POST /api/v1/points/referral/apply
+   * Body: { code: string }
+   */
+  async applyReferralCode(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId!;
+      const { code } = req.body;
+
+      if (!code) {
+        res.status(400).json({ success: false, message: 'Referral code is required' });
+        return;
+      }
+
+      const result = await pointsService.applyReferralCode(userId, code);
+
+      await cacheService.onPointsChange(userId);
+
+      await logAudit({
+        actor: { id: userId, name: '', email: '' },
+        actorType: 'user', action: 'apply_referral', category: 'points',
+        details: `Applied referral code ${code}`, req,
+        metadata: { code }
+      });
+
+      res.status(200).json({
+        success: true,
+        message: `Welcome! You earned ${result.bonusAwarded} bonus points`,
+        data: result,
+      });
+    } catch (error: any) {
+      logger.error('Apply referral code error:', error);
+      res.status(400).json({
+        success: false,
+        message: error.message || 'Failed to apply referral code',
+      });
+    }
+  }
 }
 
 export default new PointsController();

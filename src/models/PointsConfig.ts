@@ -28,6 +28,10 @@ export interface IPointsConfigDocument extends Document {
   firstMatchBonus: number;
   firstGameBonus: number;
   
+  // Referral bonuses
+  referralBonus: number; // Points earned by referrer when someone signs up with their code
+  referralSignupBonus: number; // Points earned by the new user who used a referral code
+
   // Premium benefits
   premiumMatchDiscount: number; // Percentage discount on match costs
   premiumGameDiscount: number; // Percentage discount on game costs
@@ -48,7 +52,7 @@ const pointsConfigSchema = new Schema<IPointsConfigDocument>(
     },
     matchRequestFreePerDay: {
       type: Number,
-      default: 5,
+      default: 3,
       min: 0,
     },
     
@@ -81,43 +85,53 @@ const pointsConfigSchema = new Schema<IPointsConfigDocument>(
     // Daily/Weekly
     dailyLoginBonus: {
       type: Number,
-      default: 10,
+      default: 5,
     },
     weeklyStreakBonus: {
       type: Number,
-      default: 50,
+      default: 25,
     },
-    
+
     // Activity bonuses
     profileCompletionBonus: {
       type: Number,
-      default: 50,
+      default: 25,
     },
     emailVerificationBonus: {
       type: Number,
-      default: 20,
+      default: 10,
     },
     phoneVerificationBonus: {
       type: Number,
-      default: 20,
+      default: 10,
     },
     idVerificationBonus: {
       type: Number,
-      default: 100,
+      default: 50,
     },
     firstMessageBonus: {
       type: Number,
-      default: 5,
+      default: 3,
     },
     firstMatchBonus: {
       type: Number,
-      default: 25,
+      default: 10,
     },
     firstGameBonus: {
       type: Number,
-      default: 15,
+      default: 5,
     },
     
+    // Referral bonuses
+    referralBonus: {
+      type: Number,
+      default: 50, // Referrer gets 50 points
+    },
+    referralSignupBonus: {
+      type: Number,
+      default: 20, // New user gets 20 points
+    },
+
     // Premium benefits
     premiumMatchDiscount: {
       type: Number,

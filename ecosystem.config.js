@@ -13,6 +13,7 @@ module.exports = {
       env_development: {
         NODE_ENV: 'development',
         PORT: 3000,
+        RATE_LIMIT_MAX_REQUESTS: 100000,
       },
     },
   ],

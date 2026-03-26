@@ -135,6 +135,21 @@ const userSchema = new mongoose_1.Schema({
         match: /^[a-z0-9_]+$/, // Only lowercase, numbers, underscores
         index: true,
     },
+    // Referral system
+    referralCode: {
+        type: String,
+        unique: true,
+        sparse: true,
+        uppercase: true,
+        index: true,
+    },
+    referredBy: {
+        type: String,
+    },
+    referralCount: {
+        type: Number,
+        default: 0,
+    },
     location: {
         type: {
             type: String,
@@ -285,6 +300,16 @@ const userSchema = new mongoose_1.Schema({
             default: 0,
         },
         lastActiveDate: Date,
+    },
+    ownedCosmetics: {
+        type: [String],
+        default: [],
+    },
+    equippedCosmetics: {
+        profileFrame: { type: String },
+        chatBubble: { type: String },
+        badge: { type: String },
+        nameEffect: { type: String },
     },
     likes: [{
             type: mongoose_1.Schema.Types.ObjectId,

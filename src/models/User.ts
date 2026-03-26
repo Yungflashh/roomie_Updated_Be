@@ -36,7 +36,12 @@ export interface IUserDocument extends Document {
 
   // Points username - NEW FIELD
   pointsUsername?: string;
-  
+
+  // Referral system
+  referralCode?: string;
+  referredBy?: string; // userId of the referrer
+  referralCount: number;
+
   location: {
     type: 'Point';
     coordinates: [number, number];
@@ -97,6 +102,14 @@ export interface IUserDocument extends Document {
     achievements: string[];
     streak: number;
     lastActiveDate?: Date;
+  };
+  // Cosmetics
+  ownedCosmetics: string[]; // Cosmetic IDs
+  equippedCosmetics: {
+    profileFrame?: string;
+    chatBubble?: string;
+    badge?: string;
+    nameEffect?: string;
   };
   likes: string[];
   passes: string[];
@@ -254,7 +267,23 @@ const userSchema = new Schema<IUserDocument>(
       match: /^[a-z0-9_]+$/, // Only lowercase, numbers, underscores
       index: true,
     },
-    
+
+    // Referral system
+    referralCode: {
+      type: String,
+      unique: true,
+      sparse: true,
+      uppercase: true,
+      index: true,
+    },
+    referredBy: {
+      type: String,
+    },
+    referralCount: {
+      type: Number,
+      default: 0,
+    },
+
     location: {
       type: {
         type: String,
@@ -405,6 +434,16 @@ const userSchema = new Schema<IUserDocument>(
         default: 0,
       },
       lastActiveDate: Date,
+    },
+    ownedCosmetics: {
+      type: [String],
+      default: [],
+    },
+    equippedCosmetics: {
+      profileFrame: { type: String },
+      chatBubble: { type: String },
+      badge: { type: String },
+      nameEffect: { type: String },
     },
     likes: [{
       type: Schema.Types.ObjectId,
