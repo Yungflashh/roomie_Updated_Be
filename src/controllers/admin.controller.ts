@@ -163,10 +163,52 @@ class AdminController {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      const [newUsersToday, matchesToday] = await Promise.all([
+      const { UserActivity } = await import('../models/UserActivity');
+      const { GameSession } = await import('../models/Game');
+
+      const todayStr = today.toISOString().slice(0, 10);
+      const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().slice(0, 10);
+      const weekAgo = new Date(today); weekAgo.setDate(weekAgo.getDate() - 7);
+      const weekAgoStr = weekAgo.toISOString().slice(0, 10);
+      const monthAgo = new Date(today); monthAgo.setDate(monthAgo.getDate() - 30);
+      const monthAgoStr = monthAgo.toISOString().slice(0, 10);
+
+      const [
+        newUsersToday,
+        matchesToday,
+        dauToday,
+        dauYesterday,
+        wau,
+        mau,
+        avgSessionToday,
+        totalGameSessions,
+      ] = await Promise.all([
         User.countDocuments({ createdAt: { $gte: today } }),
         Match.countDocuments({ matchedAt: { $gte: today } }),
+        UserActivity.countDocuments({ date: todayStr }),
+        UserActivity.countDocuments({ date: yesterdayStr }),
+        UserActivity.distinct('user', { date: { $gte: weekAgoStr } }).then(u => u.length),
+        UserActivity.distinct('user', { date: { $gte: monthAgoStr } }).then(u => u.length),
+        UserActivity.aggregate([
+          { $match: { date: todayStr } },
+          { $group: { _id: null, avg: { $avg: '$totalSeconds' } } },
+        ]).then(r => Math.round((r[0]?.avg || 0) / 60)),
+        GameSession.countDocuments(),
       ]);
+
+      // Retention: users active today who were also active yesterday
+      let retentionRate = 0;
+      if (dauYesterday > 0) {
+        const yesterdayUsers = await UserActivity.distinct('user', { date: yesterdayStr });
+        if (yesterdayUsers.length > 0) {
+          const retained = await UserActivity.countDocuments({
+            date: todayStr,
+            user: { $in: yesterdayUsers },
+          });
+          retentionRate = Math.round((retained / yesterdayUsers.length) * 100);
+        }
+      }
 
       res.json({
         success: true,
@@ -176,11 +218,18 @@ class AdminController {
           totalMatches,
           totalMessages,
           totalProperties,
-          totalGames: 0,
+          totalGames: totalGameSessions,
           newUsersToday,
           matchesToday,
           revenueToday: 0,
           revenueMonth: 0,
+          // New analytics
+          dauToday,
+          dauYesterday,
+          wau,
+          mau,
+          avgSessionMinutes: avgSessionToday,
+          retentionRate,
         }
       });
     } catch (error: any) {

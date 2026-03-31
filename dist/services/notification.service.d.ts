@@ -40,6 +40,18 @@ declare class NotificationService {
      * Get unread count
      */
     getUnreadCount(userId: string): Promise<number>;
+    /**
+     * Get unread match request count
+     */
+    getUnreadRequestCount(userId: string): Promise<number>;
+    /**
+     * Count pending match requests (users who liked this user but aren't matched yet)
+     */
+    getPendingRequestCount(userId: string): Promise<number>;
+    /**
+     * Build and emit full unread counts for a user
+     */
+    emitFullUnreadCounts(userId: string): Promise<void>;
     notifyMatchRequest(fromUserId: string, toUserId: string): Promise<void>;
     notifyMatchAccepted(fromUserId: string, toUserId: string, matchId: string): Promise<void>;
     notifyNewMessage(fromUserId: string, toUserId: string, messagePreview: string): Promise<void>;

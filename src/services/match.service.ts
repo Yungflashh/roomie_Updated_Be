@@ -1,5 +1,6 @@
 // src/services/match.service.ts - COMPLETE WITH POINTS SYSTEM AND DISTANCE SORTING
 import { User, Match, IUserDocument, IMatchDocument, Message } from '../models';
+import { PointTransaction } from '../models/PointTransaction';
 import { emitNewMatch, emitMatchRequest, emitNotification } from '../config/socket.config';
 import compatibilityService from './compatibility.service';
 import notificationService from './notification.service';
@@ -254,53 +255,76 @@ class MatchService {
   }
 
   /**
-   * Like a user (with points deduction)
+   * Check daily action limits based on subscription plan.
+   */
+  private async checkDailyLimit(userId: string, actionType: 'like' | 'match_request'): Promise<void> {
+    const user = await User.findById(userId).select('subscription').lean();
+    const plan = user?.subscription?.plan || 'free';
+
+    const LIMITS: Record<string, { likes: number; requests: number }> = {
+      free: { likes: 13, requests: 4 },
+      premium: { likes: 0, requests: 8 }, // 0 = unlimited
+      pro: { likes: 0, requests: 0 },
+    };
+
+    const limit = LIMITS[plan] || LIMITS.free;
+    const maxToday = actionType === 'like' ? limit.likes : limit.requests;
+
+    if (maxToday === 0) return; // unlimited
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const count = await PointTransaction.countDocuments({
+      user: userId,
+      type: actionType,
+      createdAt: { $gte: todayStart },
+    });
+
+    if (count >= maxToday) {
+      const label = actionType === 'like' ? 'likes' : 'match requests';
+      if (plan === 'free') {
+        throw new Error(`Daily limit reached (${maxToday} ${label}/day). Upgrade to Premium for more!`);
+      } else {
+        throw new Error(`Daily limit reached (${maxToday} ${label}/day). Upgrade to Pro for unlimited!`);
+      }
+    }
+  }
+
+  /**
+   * Like a user (cheap — 2 pts). Anonymous to recipient unless they're premium.
+   * If mutual like → auto-match.
    */
   async likeUser(userId: string, targetUserId: string): Promise<{
     isMatch: boolean;
     match?: any;
     pointsDeducted?: number;
   }> {
-    if (userId === targetUserId) {
-      throw new Error('Cannot like yourself');
-    }
+    if (userId === targetUserId) throw new Error('Cannot like yourself');
+
+    await this.checkDailyLimit(userId, 'like');
 
     const [currentUser, targetUser] = await Promise.all([
       User.findById(userId),
       User.findById(targetUserId),
     ]);
+    if (!currentUser || !targetUser) throw new Error('User not found');
 
-    if (!currentUser || !targetUser) {
-      throw new Error('User not found');
+    // Like costs 2 points
+    const LIKE_COST = 2;
+    if (currentUser.gamification.points < LIKE_COST) {
+      throw new Error(`Requires ${LIKE_COST} points. You have ${currentUser.gamification.points}`);
     }
 
-    // Check if user can send match request
-    const canSend = await this.canSendMatchRequest(userId);
-    if (!canSend.canSend) {
-      throw new Error(canSend.reason || 'Cannot send match request');
-    }
+    await pointsService.deductPoints({
+      userId,
+      amount: LIKE_COST,
+      type: 'like',
+      reason: `Liked ${targetUser.firstName}'s profile`,
+      metadata: { targetUserId },
+    });
 
-    // Deduct points for match request
-    const pointsCost = canSend.pointsCost!;
-    
-    try {
-      await pointsService.deductPoints({
-        userId,
-        amount: pointsCost,
-        type: 'match_request',
-        reason: `Match request to ${targetUser.firstName}`,
-        metadata: {
-          targetUserId,
-          targetUserName: `${targetUser.firstName} ${targetUser.lastName}`,
-        },
-      });
-
-      logger.info(`Deducted ${pointsCost} points from ${userId} for match request`);
-    } catch (error: any) {
-      throw new Error(`Failed to deduct points: ${error.message}`);
-    }
-
-    // Add to likes and record last action for rewind
+    // Add to likes
     if (!currentUser.likes.includes(targetUserId as any)) {
       currentUser.likes.push(targetUserId as any);
     }
@@ -311,110 +335,81 @@ class MatchService {
     };
     await currentUser.save();
 
-    // Check for mutual match
+    // Check for mutual like → auto-match
     const isMutualMatch = targetUser.likes.includes(userId as any);
 
     if (isMutualMatch) {
-      const compatibilityScore = compatibilityService.calculateCompatibility(
-        currentUser,
-        targetUser
-      );
-
-      let match = await Match.findOne({
-        $or: [
-          { user1: userId, user2: targetUserId },
-          { user1: targetUserId, user2: userId },
-        ],
-      });
-
-      if (!match) {
-        match = await Match.create({
-          user1: userId,
-          user2: targetUserId,
-          compatibilityScore,
-          matchedAt: new Date(),
-          status: 'active',
-          initiatedBy: userId,
-          pointsCost,
-        });
-
-        logger.info(`New match created: ${userId} <-> ${targetUserId}`);
-
-        // Track challenge progress for both users
-        try {
-          await weeklyChallengeService.trackAction(userId, 'match');
-          await weeklyChallengeService.trackAction(targetUserId, 'match');
-        } catch (e) { logger.warn('Challenge tracking (match) error:', e); }
-
-        // Award bonus for successful match
-        const config = await pointsService.getConfig();
-        const matchBonus = config.firstMatchBonus;
-        
-        if (matchBonus > 0) {
-          await pointsService.addPoints({
-            userId,
-            amount: matchBonus,
-            type: 'bonus',
-            reason: `Match with ${targetUser.firstName}!`,
-            metadata: {
-              matchId: match._id,
-              targetUserId,
-            },
-          });
-          logger.info(`Awarded ${matchBonus} points bonus for successful match`);
-        }
-
-        // Emit match events
-        try {
-          emitNewMatch(userId, targetUserId, {
-            _id: match._id,
-            matchedAt: match.matchedAt,
-            user: {
-              _id: targetUser._id,
-              firstName: targetUser.firstName,
-              lastName: targetUser.lastName,
-              profilePhoto: targetUser.profilePhoto,
-            },
-            compatibilityScore,
-          });
-
-          emitNewMatch(targetUserId, userId, {
-            _id: match._id,
-            matchedAt: match.matchedAt,
-            user: {
-              _id: currentUser._id,
-              firstName: currentUser.firstName,
-              lastName: currentUser.lastName,
-              profilePhoto: currentUser.profilePhoto,
-            },
-            compatibilityScore,
-          });
-        } catch (socketError) {
-          logger.warn('Socket emit failed:', socketError);
-        }
-
-        // Create notifications
-        await notificationService.notifyMatchAccepted(userId, targetUserId, match._id.toString());
-        await notificationService.notifyMatchAccepted(targetUserId, userId, match._id.toString());
-      }
-
-      return {
-        isMatch: true,
-        pointsDeducted: pointsCost,
-        match: {
-          id: match._id,
-          user: {
-            id: targetUser._id,
-            firstName: targetUser.firstName,
-            lastName: targetUser.lastName,
-            profilePhoto: targetUser.profilePhoto,
-          },
-          compatibilityScore,
-        },
-      };
+      return this._createMatch(userId, targetUserId, currentUser, targetUser, LIKE_COST);
     }
 
-    // Not a match yet - emit match request
+    // Not mutual — anonymous notification
+    await notificationService.createNotification({
+      user: targetUserId,
+      type: 'like',
+      title: 'Someone liked your profile!',
+      body: 'Upgrade to Premium to see who likes you.',
+      data: { type: 'anonymous_like' },
+    });
+
+    logger.info(`User ${userId} liked ${targetUserId} (${LIKE_COST} pts)`);
+    return { isMatch: false, pointsDeducted: LIKE_COST };
+  }
+
+  /**
+   * Send a match request (expensive — 15 pts). Recipient can see who sent it.
+   * If target already liked you → auto-match.
+   */
+  async sendMatchRequest(userId: string, targetUserId: string): Promise<{
+    isMatch: boolean;
+    match?: any;
+    pointsDeducted?: number;
+  }> {
+    if (userId === targetUserId) throw new Error('Cannot send request to yourself');
+
+    await this.checkDailyLimit(userId, 'match_request');
+
+    const [currentUser, targetUser] = await Promise.all([
+      User.findById(userId),
+      User.findById(targetUserId),
+    ]);
+    if (!currentUser || !targetUser) throw new Error('User not found');
+
+    // Match request costs 15 points (premium discount applies)
+    let requestCost = 15;
+    const limits = premiumService.getLimits(currentUser);
+    requestCost = Math.round(requestCost * limits.matchCostMultiplier);
+
+    if (currentUser.gamification.points < requestCost) {
+      throw new Error(`Requires ${requestCost} points. You have ${currentUser.gamification.points}`);
+    }
+
+    await pointsService.deductPoints({
+      userId,
+      amount: requestCost,
+      type: 'match_request',
+      reason: `Match request to ${targetUser.firstName}`,
+      metadata: { targetUserId, targetUserName: `${targetUser.firstName} ${targetUser.lastName}` },
+    });
+
+    // Add to likes if not already
+    if (!currentUser.likes.includes(targetUserId as any)) {
+      currentUser.likes.push(targetUserId as any);
+    }
+    (currentUser as any).metadata = {
+      ...(currentUser as any).metadata,
+      lastSwipeAction: 'like',
+      lastSwipedUserId: targetUserId,
+    };
+    await currentUser.save();
+
+    // Check for mutual like → auto-match
+    const isMutualMatch = targetUser.likes.includes(userId as any);
+
+    if (isMutualMatch) {
+      return this._createMatch(userId, targetUserId, currentUser, targetUser, requestCost);
+    }
+
+    // Not mutual — visible notification with sender info
     try {
       emitMatchRequest(targetUserId, {
         _id: currentUser._id,
@@ -422,16 +417,63 @@ class MatchService {
         lastName: currentUser.lastName,
         profilePhoto: currentUser.profilePhoto,
       });
-    } catch (socketError) {
-      logger.warn('Socket emit failed:', socketError);
+    } catch {}
+
+    await notificationService.notifyMatchRequest(userId, targetUserId);
+
+    logger.info(`User ${userId} sent match request to ${targetUserId} (${requestCost} pts)`);
+    return { isMatch: false, pointsDeducted: requestCost };
+  }
+
+  /**
+   * Internal: create a match between two users who mutually like each other.
+   */
+  private async _createMatch(userId: string, targetUserId: string, currentUser: any, targetUser: any, pointsCost: number) {
+    const compatibilityScore = compatibilityService.calculateCompatibility(currentUser, targetUser);
+
+    let match = await Match.findOne({
+      $or: [
+        { user1: userId, user2: targetUserId },
+        { user1: targetUserId, user2: userId },
+      ],
+    });
+
+    if (!match) {
+      match = await Match.create({
+        user1: userId,
+        user2: targetUserId,
+        compatibilityScore,
+        matchedAt: new Date(),
+        status: 'active',
+        initiatedBy: userId,
+        pointsCost,
+      });
+
+      logger.info(`New match created: ${userId} <-> ${targetUserId}`);
+
+      try {
+        await weeklyChallengeService.trackAction(userId, 'match');
+        await weeklyChallengeService.trackAction(targetUserId, 'match');
+      } catch (e) { logger.warn('Challenge tracking (match) error:', e); }
+
+      const config = await pointsService.getConfig();
+      if (config.firstMatchBonus > 0) {
+        await pointsService.addPoints({ userId, amount: config.firstMatchBonus, type: 'bonus', reason: `Match with ${targetUser.firstName}!`, metadata: { matchId: match._id, targetUserId } });
+      }
+
+      try {
+        emitNewMatch(userId, targetUserId, { _id: match._id, matchedAt: match.matchedAt, user: { _id: targetUser._id, firstName: targetUser.firstName, lastName: targetUser.lastName, profilePhoto: targetUser.profilePhoto }, compatibilityScore });
+        emitNewMatch(targetUserId, userId, { _id: match._id, matchedAt: match.matchedAt, user: { _id: currentUser._id, firstName: currentUser.firstName, lastName: currentUser.lastName, profilePhoto: currentUser.profilePhoto }, compatibilityScore });
+      } catch {}
+
+      await notificationService.notifyMatchAccepted(userId, targetUserId, match._id.toString());
+      await notificationService.notifyMatchAccepted(targetUserId, userId, match._id.toString());
     }
 
-    // Create notification
-    await notificationService.notifyLike(userId, targetUserId);
-
-    return { 
-      isMatch: false,
+    return {
+      isMatch: true,
       pointsDeducted: pointsCost,
+      match: { id: match._id, user: { id: targetUser._id, firstName: targetUser.firstName, lastName: targetUser.lastName, profilePhoto: targetUser.profilePhoto }, compatibilityScore },
     };
   }
 
@@ -617,14 +659,18 @@ class MatchService {
   /**
    * Get users who liked current user
    */
+  /**
+   * Get users who liked you.
+   * Premium: full profiles. Free: only count + blurred.
+   */
   async getLikes(userId: string): Promise<any[]> {
     const matchedUserIds = await this.getMatchedUserIds(userId);
 
     const usersWhoLiked = await User.find({
       likes: userId,
-      _id: { 
+      _id: {
         $ne: userId,
-        $nin: matchedUserIds 
+        $nin: matchedUserIds
       },
     })
     .select(
@@ -636,17 +682,23 @@ class MatchService {
 
     logger.info(`Found ${usersWhoLiked.length} users who liked ${userId}`);
 
+    // Check if requesting user is premium
+    const requestingUser = await User.findById(userId).select('subscription').lean();
+    const isPremium = requestingUser?.subscription?.plan === 'premium' || requestingUser?.subscription?.plan === 'pro';
+
     return usersWhoLiked.map(user => ({
       id: user._id,
       _id: user._id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      profilePhoto: user.profilePhoto,
-      photos: user.photos || [],
-      bio: user.bio,
-      occupation: user.occupation,
-      location: user.location,
+      // Free users: hide identity, only show blurred data
+      firstName: isPremium ? user.firstName : '???',
+      lastName: isPremium ? user.lastName : '',
+      profilePhoto: isPremium ? user.profilePhoto : null,
+      photos: isPremium ? (user.photos || []) : [],
+      bio: isPremium ? user.bio : 'Upgrade to Premium to see who liked you',
+      occupation: isPremium ? user.occupation : null,
+      location: user.location, // keep location for "X people near you liked you"
       preferences: user.preferences,
+      hidden: !isPremium, // flag for frontend to know it's blurred
       lifestyle: user.lifestyle,
       interests: user.interests || [],
       verified: user.verified,

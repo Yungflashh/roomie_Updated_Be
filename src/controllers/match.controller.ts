@@ -246,6 +246,33 @@ class MatchController {
   }
 
   /**
+   * Send a match request (visible, costs more points)
+   */
+  async sendMatchRequest(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const userId = req.user?.userId!;
+      const { targetUserId } = req.params;
+
+      const result = await matchService.sendMatchRequest(userId, targetUserId);
+
+      await cacheService.onUserInteraction(userId, targetUserId);
+      await cacheService.onPointsChange(userId);
+
+      res.status(200).json({
+        success: true,
+        message: result.isMatch ? "It's a match!" : 'Match request sent',
+        data: result,
+      });
+    } catch (error: any) {
+      logger.error('Send match request error:', error);
+      const statusCode = error.message.includes('Cannot') || error.message.includes('yourself') ? 400 :
+                         error.message.includes('not found') ? 404 :
+                         error.message.includes('Requires') ? 402 : 500;
+      res.status(statusCode).json({ success: false, message: error.message || 'Failed to send request' });
+    }
+  }
+
+  /**
    * Pass a user
    */
   async passUser(req: AuthRequest, res: Response): Promise<void> {

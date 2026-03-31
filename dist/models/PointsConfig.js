@@ -75,49 +75,49 @@ const pointsConfigSchema = new mongoose_1.Schema({
     // Daily/Weekly
     dailyLoginBonus: {
         type: Number,
-        default: 5,
+        default: 2,
     },
     weeklyStreakBonus: {
         type: Number,
-        default: 25,
+        default: 5,
     },
     // Activity bonuses
     profileCompletionBonus: {
         type: Number,
-        default: 25,
+        default: 10,
     },
     emailVerificationBonus: {
         type: Number,
-        default: 10,
+        default: 3,
     },
     phoneVerificationBonus: {
         type: Number,
-        default: 10,
+        default: 3,
     },
     idVerificationBonus: {
         type: Number,
-        default: 50,
+        default: 10,
     },
     firstMessageBonus: {
         type: Number,
-        default: 3,
+        default: 1,
     },
     firstMatchBonus: {
         type: Number,
-        default: 10,
+        default: 3,
     },
     firstGameBonus: {
         type: Number,
-        default: 5,
+        default: 2,
     },
     // Referral bonuses
     referralBonus: {
         type: Number,
-        default: 50, // Referrer gets 50 points
+        default: 15, // Referrer gets 15 points
     },
     referralSignupBonus: {
         type: Number,
-        default: 20, // New user gets 20 points
+        default: 5, // New user gets 5 points
     },
     // Premium benefits
     premiumMatchDiscount: {
@@ -135,6 +135,19 @@ const pointsConfigSchema = new mongoose_1.Schema({
     premiumDailyBonus: {
         type: Number,
         default: 20,
+    },
+    // Economy controls
+    dailyFreeEarningCap: {
+        type: Number,
+        default: 100, // max free points per day from non-purchase sources
+    },
+    pointDecayDays: {
+        type: Number,
+        default: 90, // points expire after 90 days of inactivity
+    },
+    pointDecayPercent: {
+        type: Number,
+        default: 10, // lose 10% of balance per decay check
     },
     isActive: {
         type: Boolean,

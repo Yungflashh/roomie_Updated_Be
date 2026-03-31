@@ -18,6 +18,7 @@ export interface ICosmeticDocument extends Document {
         gradient?: string[];
         animation?: 'none' | 'pulse' | 'shimmer' | 'sparkle';
         textColor?: string;
+        theme?: string;
     };
     requiredLevel?: number;
     isLimited: boolean;

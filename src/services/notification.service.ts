@@ -24,14 +24,7 @@ class NotificationService {
     // Emit real-time notification via WebSocket
     try {
       emitNotification(data.user, notification.toObject());
-
-      // Emit updated unread counts
-      const unreadCount = await this.getUnreadCount(data.user);
-      emitUnreadUpdate(data.user, {
-        messages: 0,
-        notifications: unreadCount,
-        requests: 0,
-      });
+      await this.emitFullUnreadCounts(data.user);
     } catch (socketError) {
       logger.warn('Socket emit failed (user may be offline):', socketError);
     }
@@ -90,17 +83,7 @@ class NotificationService {
       { read: true, readAt: new Date() }
     );
 
-    // Emit updated unread count
-    try {
-      const unreadCount = await this.getUnreadCount(userId);
-      emitUnreadUpdate(userId, {
-        messages: 0,
-        notifications: unreadCount,
-        requests: 0,
-      });
-    } catch (socketError) {
-      logger.warn('Socket emit failed:', socketError);
-    }
+    await this.emitFullUnreadCounts(userId);
   }
 
   /**
@@ -112,15 +95,7 @@ class NotificationService {
       { read: true, readAt: new Date() }
     );
 
-    try {
-      emitUnreadUpdate(userId, {
-        messages: 0,
-        notifications: 0,
-        requests: 0,
-      });
-    } catch (socketError) {
-      logger.warn('Socket emit failed:', socketError);
-    }
+    await this.emitFullUnreadCounts(userId);
   }
 
   /**
@@ -142,6 +117,45 @@ class NotificationService {
    */
   async getUnreadCount(userId: string): Promise<number> {
     return Notification.countDocuments({ user: userId, read: false });
+  }
+
+  /**
+   * Get unread match request count
+   */
+  async getUnreadRequestCount(userId: string): Promise<number> {
+    return Notification.countDocuments({ user: userId, read: false, type: { $in: ['request', 'like'] } });
+  }
+
+  /**
+   * Count pending match requests (users who liked this user but aren't matched yet)
+   */
+  async getPendingRequestCount(userId: string): Promise<number> {
+    try {
+      const matchService = (await import('./match.service')).default;
+      const likes = await matchService.getLikes(userId);
+      return likes?.length || 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Build and emit full unread counts for a user
+   */
+  async emitFullUnreadCounts(userId: string): Promise<void> {
+    try {
+      const [notifications, requests] = await Promise.all([
+        this.getUnreadCount(userId),
+        this.getPendingRequestCount(userId),
+      ]);
+      emitUnreadUpdate(userId, {
+        messages: 0,
+        notifications,
+        requests,
+      });
+    } catch (e) {
+      logger.warn('emitFullUnreadCounts failed:', e);
+    }
   }
 
   // =====================

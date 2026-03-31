@@ -652,17 +652,20 @@ class GameService {
                 const acceptedCount = session.invitations.filter(inv => inv.status === 'accepted').length;
                 const game = session.game;
                 const minPlayers = game.minPlayers || 2;
-                if (allResponded && acceptedCount + 1 >= minPlayers) {
-                    session.status = 'waiting';
+                // Async: game becomes active as soon as anyone accepts
+                if (session.status === 'pending') {
+                    session.status = 'active';
+                    if (!session.startedAt)
+                        session.startedAt = new Date();
                 }
-                else if (allResponded && acceptedCount + 1 < minPlayers) {
+                if (allResponded && acceptedCount + 1 < minPlayers) {
                     session.status = 'cancelled';
                 }
                 await session.save();
                 // Update message for this invitee's match chat
                 const inv = session.invitations.find(i => i.user.toString() === userId);
                 if (inv) {
-                    await models_1.Message.updateMany({ 'gameData.sessionId': sessionId, match: inv.matchId }, { 'gameData.status': session.status === 'waiting' ? 'accepted' : 'accepted' });
+                    await models_1.Message.updateMany({ 'gameData.sessionId': sessionId, match: inv.matchId }, { 'gameData.status': 'accepted' });
                 }
             }
             else {
@@ -710,7 +713,10 @@ class GameService {
                     rank: 0,
                     isReady: false,
                 });
-                session.status = 'waiting';
+                // Async: game becomes active immediately
+                session.status = 'active';
+                if (!session.startedAt)
+                    session.startedAt = new Date();
                 await session.save();
                 if (session.invitedBy) {
                     const invitedByObj = session.invitedBy;
@@ -743,6 +749,10 @@ class GameService {
         }
         return session;
     }
+    /**
+     * Start game for a single player. Deducts their points and lets them play.
+     * The game is async — each player plays on their own schedule.
+     */
     async startGameSession(sessionId, userId) {
         const session = await models_1.GameSession.findById(sessionId)
             .populate('game')
@@ -750,68 +760,56 @@ class GameService {
         if (!session)
             throw new Error('Game session not found');
         const game = session.game;
-        const isPlayer = session.players.some(p => {
+        const player = session.players.find(p => {
             const userObj = p.user;
             const playerId = userObj._id ? userObj._id.toString() : userObj.toString();
             return playerId === userId;
         });
-        if (!isPlayer)
+        if (!player)
             throw new Error('You are not part of this game session');
-        if (session.status !== 'waiting')
-            throw new Error('Game cannot be started');
-        if (session.players.length < game.minPlayers) {
-            throw new Error(`Minimum ${game.minPlayers} players required`);
+        if (session.status === 'completed' || session.status === 'cancelled' || session.status === 'expired') {
+            throw new Error('This game session has ended');
         }
-        const pointsCost = session.pointsCost || game.pointsCost;
-        for (const player of session.players) {
-            const playerObj = player.user;
-            const playerId = playerObj._id ? playerObj._id.toString() : playerObj.toString();
+        // Check if player already completed
+        if (player.completedAt) {
+            throw new Error('You have already played this game');
+        }
+        // Deduct points for THIS player only (if not already deducted)
+        if (!player.pointsDeducted) {
+            const pointsCost = session.pointsCost || game.pointsCost;
             try {
                 await points_service_1.default.deductPoints({
-                    userId: playerId,
+                    userId,
                     amount: pointsCost,
                     type: 'game_entry',
                     reason: `Game entry: ${game.name}`,
-                    metadata: {
-                        gameId: game._id,
-                        gameName: game.name,
-                        sessionId: session._id,
-                    },
+                    metadata: { gameId: game._id, gameName: game.name, sessionId: session._id },
                 });
-                logger_1.default.info(`Deducted ${pointsCost} points from player ${playerId} for game ${game.name}`);
+                player.pointsDeducted = true;
+                logger_1.default.info(`Deducted ${pointsCost} points from ${userId} for game ${game.name}`);
             }
             catch (error) {
-                for (const paidPlayer of session.players) {
-                    const paidPlayerObj = paidPlayer.user;
-                    const paidPlayerId = paidPlayerObj._id ? paidPlayerObj._id.toString() : paidPlayerObj.toString();
-                    if (paidPlayerId === playerId)
-                        break;
-                    await points_service_1.default.addPoints({
-                        userId: paidPlayerId,
-                        amount: pointsCost,
-                        type: 'refund',
-                        reason: `Game cancelled: ${game.name}`,
-                        metadata: {
-                            gameId: game._id,
-                            sessionId: session._id,
-                        },
-                    });
-                }
-                throw new Error(`Player has insufficient points to start game`);
+                throw new Error('Insufficient points to play this game');
             }
         }
-        session.status = 'active';
-        session.startedAt = new Date();
+        // Set session to active if it's still pending/waiting
+        if (session.status === 'pending' || session.status === 'waiting') {
+            session.status = 'active';
+            if (!session.startedAt)
+                session.startedAt = new Date();
+            await models_1.Game.findByIdAndUpdate(game._id, { $inc: { playCount: 1 } });
+        }
         await session.save();
+        // Emit that this player has started (so others can see)
         (0, socket_config_1.emitGameStarted)(sessionId, {
             sessionId,
             game: session.game,
             players: session.players,
             gameData: session.gameData,
             startedAt: session.startedAt,
+            startedBy: userId,
         });
-        await models_1.Game.findByIdAndUpdate(game._id, { $inc: { playCount: 1 } });
-        logger_1.default.info(`Game session started: ${sessionId}`);
+        logger_1.default.info(`Player ${userId} started game session: ${sessionId}`);
         return session;
     }
     async submitAnswer(sessionId, userId, questionIndex, answer, timeSpent) {
@@ -869,7 +867,7 @@ class GameService {
             logger_1.default.error(`Session not found: ${sessionId}`);
             throw new Error('Game session not found');
         }
-        if (session.status !== 'active') {
+        if (session.status !== 'active' && session.status !== 'waiting') {
             logger_1.default.error(`Game is not active, status: ${session.status}`);
             throw new Error('Game is not active');
         }
@@ -1244,6 +1242,39 @@ class GameService {
         if (allCompleted) {
             logger_1.default.info(`All players completed! Finalizing game...`);
             await this.finalizeGameSession(sessionId);
+            // Send notification to all players that game is complete
+            try {
+                const notifService = (await Promise.resolve().then(() => __importStar(require('./notification.service')))).default;
+                const finalSession = await models_1.GameSession.findById(sessionId).populate('game').populate('players.user', 'firstName lastName');
+                if (finalSession) {
+                    const gameName = finalSession.game?.name || 'Game';
+                    const playerNames = finalSession.players.map(p => p.user?.firstName || 'Player').join(', ');
+                    const winnerPlayer = finalSession.players.find(p => p.rank === 1);
+                    const winnerName = winnerPlayer ? (winnerPlayer.user?.firstName || 'Player') : null;
+                    for (const p of finalSession.players) {
+                        const pId = (p.user?._id || p.user).toString();
+                        try {
+                            await notifService.createNotification({
+                                user: pId,
+                                type: 'system',
+                                title: `${gameName} Complete!`,
+                                body: winnerName
+                                    ? `Game between ${playerNames} has ended. ${winnerName} won!`
+                                    : `Game between ${playerNames} has ended. It's a tie!`,
+                                data: { sessionId, type: 'game_complete' },
+                            });
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch (e) {
+                logger_1.default.warn('Game complete notification error:', e);
+            }
+        }
+        else {
+            // Emit score update so other players can see this player finished
+            (0, socket_config_1.emitScoreUpdate)(sessionId, { userId, score: totalScore, correctCount: results.filter(r => r.correct).length, completed: true });
         }
         logger_1.default.info(`========== END SUBMIT ALL ANSWERS ==========`);
         return {
@@ -1272,7 +1303,22 @@ class GameService {
                 return spUserId === playerUserId;
             });
             if (sessionPlayer) {
-                sessionPlayer.rank = index + 1;
+                // Handle ties: same score = same rank
+                if (index > 0 && sortedPlayers[index].score === sortedPlayers[index - 1].score) {
+                    const prevPlayer = session.players.find(sp => {
+                        const prevUserId = sortedPlayers[index - 1].user?._id
+                            ? sortedPlayers[index - 1].user._id.toString()
+                            : sortedPlayers[index - 1].user.toString();
+                        const spUserId = sp.user?._id
+                            ? sp.user._id.toString()
+                            : sp.user.toString();
+                        return spUserId === prevUserId;
+                    });
+                    sessionPlayer.rank = prevPlayer?.rank || index + 1;
+                }
+                else {
+                    sessionPlayer.rank = index + 1;
+                }
             }
         });
         const winner = sortedPlayers[0];
@@ -1337,7 +1383,7 @@ class GameService {
                     // Track clan points for game win
                     try {
                         const clanService = (await Promise.resolve().then(() => __importStar(require('./clan.service')))).default;
-                        await clanService.trackMemberActivity(winnerUserId.toString(), 'game_win', 10);
+                        await clanService.trackMemberActivity(winnerUserId.toString(), 'game_win', 3);
                     }
                     catch (e) {
                         logger_1.default.warn('Clan tracking error:', e);
@@ -1364,22 +1410,30 @@ class GameService {
             'gameData.winnerId': winner ? (winner.user._id || winner.user) : undefined,
             'gameData.winnerName': winnerUser ? `${winnerUser.firstName} ${winnerUser.lastName}` : undefined,
         });
+        // Populate user data for all players
+        const playerUserIds = session.players.map(p => p.user?._id || p.user);
+        const playerUsers = await models_1.User.find({ _id: { $in: playerUserIds } }).select('firstName lastName profilePhoto').lean();
+        const userMap = new Map(playerUsers.map(u => [u._id.toString(), u]));
         (0, socket_config_1.emitGameEnded)(sessionId, {
             sessionId,
             winner: winner ? {
                 _id: winner.user._id || winner.user,
-                firstName: winner.user.firstName,
-                lastName: winner.user.lastName,
+                firstName: userMap.get((winner.user._id || winner.user).toString())?.firstName || 'Player',
+                lastName: userMap.get((winner.user._id || winner.user).toString())?.lastName || '',
                 score: winner.score,
                 pointsEarned: winner.pointsEarned,
             } : null,
-            players: session.players.map(p => ({
-                user: p.user,
-                score: p.score,
-                rank: p.rank,
-                pointsEarned: p.pointsEarned,
-                correctCount: p.answers?.filter(a => a.correct).length || 0,
-            })),
+            players: session.players.map(p => {
+                const uid = (p.user?._id || p.user).toString();
+                const u = userMap.get(uid);
+                return {
+                    user: { _id: uid, firstName: u?.firstName || 'Player', lastName: u?.lastName || '', profilePhoto: u?.profilePhoto },
+                    score: p.score,
+                    rank: p.rank,
+                    pointsEarned: p.pointsEarned,
+                    correctCount: p.answers?.filter(a => a.correct).length || 0,
+                };
+            }),
             endedAt: session.endedAt,
             pointsAwarded: session.pointsAwarded,
         });

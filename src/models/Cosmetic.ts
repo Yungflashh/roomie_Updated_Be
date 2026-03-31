@@ -21,6 +21,7 @@ export interface ICosmeticDocument extends Document {
     gradient?: string[]; // gradient colors
     animation?: 'none' | 'pulse' | 'shimmer' | 'sparkle';
     textColor?: string; // for name effects
+    theme?: string; // particle theme: 'flame' | 'ocean' | 'rose' | 'rainbow' | 'golden' | 'neon' | 'purple'
   };
   requiredLevel?: number;
   isLimited: boolean;
@@ -63,6 +64,7 @@ const cosmeticSchema = new Schema<ICosmeticDocument>(
         default: 'none',
       },
       textColor: String,
+      theme: String,
     },
     requiredLevel: { type: Number, default: 0 },
     isLimited: { type: Boolean, default: false },

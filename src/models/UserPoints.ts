@@ -29,7 +29,7 @@ export interface IUserPointsDocument extends IUserPoints, Document {}
 const pointTransactionSchema = new Schema({
   type: {
     type: String,
-    enum: ['earned', 'spent', 'penalty', 'bonus', 'transfer_received'],
+    enum: ['earned', 'spent', 'penalty', 'bonus', 'transfer_received', 'like', 'match_request', 'game_entry', 'game_reward', 'daily_login', 'weekly_streak', 'level_up', 'achievement', 'refund', 'purchase', 'admin', 'gift_received'],
     required: true,
   },
   amount: {

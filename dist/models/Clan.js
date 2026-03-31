@@ -33,8 +33,15 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ClanWar = exports.Clan = void 0;
+exports.ClanWar = exports.Clan = exports.RANK_WEIGHTS = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
+exports.RANK_WEIGHTS = {
+    leader: 5,
+    'co-leader': 4,
+    elder: 3,
+    officer: 2,
+    member: 1,
+};
 function generateInviteCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let code = '';
@@ -45,7 +52,7 @@ function generateInviteCode() {
 }
 const clanMemberSchema = new mongoose_1.Schema({
     user: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
-    role: { type: String, enum: ['leader', 'co-leader', 'member'], default: 'member' },
+    role: { type: String, enum: ['leader', 'co-leader', 'elder', 'officer', 'member'], default: 'member' },
     joinedAt: { type: Date, default: Date.now },
     pointsContributed: { type: Number, default: 0 },
     weeklyContribution: { type: Number, default: 0 },
@@ -89,6 +96,12 @@ const clanSchema = new mongoose_1.Schema({
         },
     ],
     treasury: { type: Number, default: 0 },
+    pendingMembers: [{
+            user: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
+            requestedAt: { type: Date, default: Date.now },
+            message: { type: String, maxlength: 200 },
+        }],
+    banner: { type: String, default: '' },
     streak: {
         current: { type: Number, default: 0 },
         best: { type: Number, default: 0 },
@@ -100,6 +113,11 @@ const clanSchema = new mongoose_1.Schema({
     season: {
         number: { type: Number, default: 1 },
         points: { type: Number, default: 0 },
+    },
+    settings: {
+        minLevel: { type: Number, default: 0, min: 0 },
+        requireVerification: { type: Boolean, default: false },
+        autoKickDays: { type: Number, default: 0, min: 0 },
     },
     activePerks: [{ type: String }],
     purchasedUpgrades: [

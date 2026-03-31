@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -137,10 +170,43 @@ class AdminController {
             ]);
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-            const [newUsersToday, matchesToday] = await Promise.all([
+            const { UserActivity } = await Promise.resolve().then(() => __importStar(require('../models/UserActivity')));
+            const { GameSession } = await Promise.resolve().then(() => __importStar(require('../models/Game')));
+            const todayStr = today.toISOString().slice(0, 10);
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = yesterday.toISOString().slice(0, 10);
+            const weekAgo = new Date(today);
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            const weekAgoStr = weekAgo.toISOString().slice(0, 10);
+            const monthAgo = new Date(today);
+            monthAgo.setDate(monthAgo.getDate() - 30);
+            const monthAgoStr = monthAgo.toISOString().slice(0, 10);
+            const [newUsersToday, matchesToday, dauToday, dauYesterday, wau, mau, avgSessionToday, totalGameSessions,] = await Promise.all([
                 models_1.User.countDocuments({ createdAt: { $gte: today } }),
                 models_1.Match.countDocuments({ matchedAt: { $gte: today } }),
+                UserActivity.countDocuments({ date: todayStr }),
+                UserActivity.countDocuments({ date: yesterdayStr }),
+                UserActivity.distinct('user', { date: { $gte: weekAgoStr } }).then(u => u.length),
+                UserActivity.distinct('user', { date: { $gte: monthAgoStr } }).then(u => u.length),
+                UserActivity.aggregate([
+                    { $match: { date: todayStr } },
+                    { $group: { _id: null, avg: { $avg: '$totalSeconds' } } },
+                ]).then(r => Math.round((r[0]?.avg || 0) / 60)),
+                GameSession.countDocuments(),
             ]);
+            // Retention: users active today who were also active yesterday
+            let retentionRate = 0;
+            if (dauYesterday > 0) {
+                const yesterdayUsers = await UserActivity.distinct('user', { date: yesterdayStr });
+                if (yesterdayUsers.length > 0) {
+                    const retained = await UserActivity.countDocuments({
+                        date: todayStr,
+                        user: { $in: yesterdayUsers },
+                    });
+                    retentionRate = Math.round((retained / yesterdayUsers.length) * 100);
+                }
+            }
             res.json({
                 success: true,
                 data: {
@@ -149,11 +215,18 @@ class AdminController {
                     totalMatches,
                     totalMessages,
                     totalProperties,
-                    totalGames: 0,
+                    totalGames: totalGameSessions,
                     newUsersToday,
                     matchesToday,
                     revenueToday: 0,
                     revenueMonth: 0,
+                    // New analytics
+                    dauToday,
+                    dauYesterday,
+                    wau,
+                    mau,
+                    avgSessionMinutes: avgSessionToday,
+                    retentionRate,
                 }
             });
         }

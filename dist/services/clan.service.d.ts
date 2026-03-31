@@ -1,6 +1,10 @@
-import { IClanDocument, IClanWarDocument } from '../models/Clan';
+import { IClanDocument, IClanWarDocument, ClanRole } from '../models/Clan';
 import { IClanMissionDocument } from '../models/ClanMission';
 declare class ClanService {
+    /** Check if actorRole has at least the required rank level */
+    static hasRank(actorRole: string, requiredRole: ClanRole): boolean;
+    /** Check if actor outranks target */
+    static outranks(actorRole: string, targetRole: string): boolean;
     /**
      * Create a new clan. Leader must spend 500 points.
      */
@@ -48,11 +52,11 @@ declare class ClanService {
      */
     kickMember(leaderId: string, clanId: string, targetUserId: string): Promise<IClanDocument>;
     /**
-     * Promote a member to co-leader (leader only).
+     * Promote/demote a member. Co-leader+ can change ranks, but only to ranks below their own.
      */
-    promoteMember(leaderId: string, clanId: string, targetUserId: string, role: 'co-leader' | 'member'): Promise<IClanDocument>;
+    promoteMember(actorId: string, clanId: string, targetUserId: string, role: ClanRole): Promise<IClanDocument>;
     /**
-     * Update clan settings (leader only).
+     * Update clan settings. Leader can change all. Name & banner cost treasury.
      */
     updateClan(userId: string, clanId: string, updates: {
         name?: string;
@@ -60,7 +64,28 @@ declare class ClanService {
         emoji?: string;
         color?: string;
         isOpen?: boolean;
+        banner?: string;
+        settings?: {
+            minLevel?: number;
+            requireVerification?: boolean;
+            autoKickDays?: number;
+        };
     }): Promise<IClanDocument>;
+    /**
+     * Transfer leadership to another member. Leader only.
+     */
+    transferLeadership(userId: string, clanId: string, newLeaderId: string): Promise<IClanDocument>;
+    /**
+     * Auto-kick members inactive for longer than the clan's autoKickDays setting.
+     */
+    /**
+     * Co-leader claims leadership if the current leader has been inactive for 14+ days.
+     * Costs 1000 personal points.
+     */
+    claimLeadership(userId: string, clanId: string): Promise<IClanDocument>;
+    autoKickInactive(clanId: string): Promise<{
+        kicked: string[];
+    }>;
     /**
      * Disband (delete) a clan (leader only).
      */
@@ -253,6 +278,9 @@ declare class ClanService {
     setAnnouncement(clanId: string, userId: string, text: string): Promise<string>;
     resetSeason(): Promise<void>;
     getSeasonLeaderboard(limit?: number): Promise<IClanDocument[]>;
+    getPendingMembers(clanId: string, userId: string): Promise<any[]>;
+    acceptPendingMember(clanId: string, actorId: string, targetUserId: string): Promise<IClanDocument>;
+    rejectPendingMember(clanId: string, actorId: string, targetUserId: string): Promise<IClanDocument>;
 }
 declare const _default: ClanService;
 export default _default;

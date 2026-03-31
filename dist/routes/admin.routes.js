@@ -60,6 +60,31 @@ router.get('/dashboard/stats', admin_controller_1.default.getDashboardStats);
  * @access  Private (Admin)
  */
 router.get('/dashboard/user-growth', admin_controller_1.default.getUserGrowth);
+// DAU/retention chart data
+router.get('/dashboard/dau-chart', async (req, res) => {
+    try {
+        const { UserActivity } = await Promise.resolve().then(() => __importStar(require('../models/UserActivity')));
+        const days = parseInt(req.query.days) || 30;
+        const results = [];
+        for (let i = days - 1; i >= 0; i--) {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            const dateStr = d.toISOString().slice(0, 10);
+            const [dauCount, avgSession] = await Promise.all([
+                UserActivity.countDocuments({ date: dateStr }),
+                UserActivity.aggregate([
+                    { $match: { date: dateStr } },
+                    { $group: { _id: null, avg: { $avg: '$totalSeconds' } } },
+                ]).then(r => Math.round((r[0]?.avg || 0) / 60)),
+            ]);
+            results.push({ date: dateStr, dau: dauCount, avgMinutes: avgSession });
+        }
+        res.json({ success: true, data: results });
+    }
+    catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
 // User management routes
 /**
  * @route   GET /api/v1/admin/users
@@ -337,6 +362,28 @@ router.post('/subscriptions/:userId/revoke', async (req, res) => {
             $set: { 'subscription.plan': 'free', 'subscription.endDate': new Date(), 'subscription.autoRenew': false },
         });
         res.json({ success: true, message: 'Subscription revoked' });
+    }
+    catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+// Gift points to user (admin)
+router.post('/users/:userId/gift-points', async (req, res) => {
+    try {
+        const pointsService = (await Promise.resolve().then(() => __importStar(require('../services/points.service')))).default;
+        const { amount, reason } = req.body;
+        if (!amount || amount < 1) {
+            res.status(400).json({ success: false, message: 'Amount must be at least 1' });
+            return;
+        }
+        const result = await pointsService.addPoints({
+            userId: req.params.userId,
+            amount: Math.floor(amount),
+            type: 'bonus',
+            reason: reason || 'Admin gift',
+            metadata: { giftedBy: 'admin' },
+        });
+        res.json({ success: true, data: { newBalance: result.newBalance, leveledUp: result.leveledUp, newLevel: result.newLevel } });
     }
     catch (error) {
         res.status(500).json({ success: false, message: error.message });

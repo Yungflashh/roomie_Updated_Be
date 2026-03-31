@@ -23,6 +23,10 @@ declare class GameService {
         matchId: string;
     }>): Promise<IGameSessionDocument>;
     respondToInvitation(sessionId: string, userId: string, accept: boolean): Promise<IGameSessionDocument>;
+    /**
+     * Start game for a single player. Deducts their points and lets them play.
+     * The game is async — each player plays on their own schedule.
+     */
     startGameSession(sessionId: string, userId: string): Promise<IGameSessionDocument>;
     submitAnswer(sessionId: string, userId: string, questionIndex: number, answer: string, timeSpent: number): Promise<{
         correct: boolean;

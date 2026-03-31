@@ -33,48 +33,17 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Cosmetic = void 0;
+exports.UserActivity = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
-const cosmeticSchema = new mongoose_1.Schema({
-    name: { type: String, required: true },
-    description: { type: String, required: true },
-    type: {
-        type: String,
-        enum: ['profile_frame', 'chat_bubble', 'badge', 'name_effect'],
-        required: true,
-    },
-    rarity: {
-        type: String,
-        enum: ['common', 'rare', 'epic', 'legendary'],
-        default: 'common',
-    },
-    icon: { type: String, required: true },
-    preview: { type: String, default: '' },
-    price: { type: Number, required: true, min: 0 },
-    currency: {
-        type: String,
-        enum: ['points', 'money'],
-        default: 'points',
-    },
-    style: {
-        borderColor: String,
-        borderWidth: Number,
-        glowColor: String,
-        gradient: [String],
-        animation: {
-            type: String,
-            enum: ['none', 'pulse', 'shimmer', 'sparkle'],
-            default: 'none',
-        },
-        textColor: String,
-        theme: String,
-    },
-    requiredLevel: { type: Number, default: 0 },
-    isLimited: { type: Boolean, default: false },
-    isActive: { type: Boolean, default: true },
-    sortOrder: { type: Number, default: 0 },
+const UserActivitySchema = new mongoose_1.Schema({
+    user: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
+    date: { type: String, required: true }, // YYYY-MM-DD
+    sessions: { type: Number, default: 0 },
+    totalSeconds: { type: Number, default: 0 },
+    lastSessionStart: { type: Date },
 }, { timestamps: true });
-cosmeticSchema.index({ type: 1, isActive: 1 });
-cosmeticSchema.index({ rarity: 1 });
-exports.Cosmetic = mongoose_1.default.model('Cosmetic', cosmeticSchema);
-//# sourceMappingURL=Cosmetic.js.map
+UserActivitySchema.index({ user: 1, date: 1 }, { unique: true });
+UserActivitySchema.index({ date: 1 });
+UserActivitySchema.index({ createdAt: -1 });
+exports.UserActivity = mongoose_1.default.model('UserActivity', UserActivitySchema);
+//# sourceMappingURL=UserActivity.js.map

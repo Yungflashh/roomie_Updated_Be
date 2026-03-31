@@ -2,12 +2,28 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 // ─── Clan ────────────────────────────────────────────────────────────────────
 
+export type ClanRole = 'leader' | 'co-leader' | 'elder' | 'officer' | 'member';
+
+export const RANK_WEIGHTS: Record<ClanRole, number> = {
+  leader: 5,
+  'co-leader': 4,
+  elder: 3,
+  officer: 2,
+  member: 1,
+};
+
 export interface IClanMember {
   user: mongoose.Types.ObjectId;
-  role: 'leader' | 'co-leader' | 'member';
+  role: ClanRole;
   joinedAt: Date;
   pointsContributed: number;
   weeklyContribution?: number;
+}
+
+export interface IClanPendingMember {
+  user: mongoose.Types.ObjectId;
+  requestedAt: Date;
+  message?: string;
 }
 
 export interface IClanActivityLog {
@@ -52,6 +68,8 @@ export interface IClanDocument extends Document {
   badges: string[];
   activityLog: IClanActivityLog[];
   treasury: number;
+  pendingMembers: IClanPendingMember[];
+  banner: string;
   streak: IClanStreak;
   chatMatchId: string;
   activePerks: string[];
@@ -59,6 +77,11 @@ export interface IClanDocument extends Document {
   announcement: string;
   achievements: string[];
   season: { number: number; points: number };
+  settings: {
+    minLevel: number;
+    requireVerification: boolean;
+    autoKickDays: number; // 0 = disabled
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -75,7 +98,7 @@ function generateInviteCode(): string {
 const clanMemberSchema = new Schema<IClanMember>(
   {
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-    role: { type: String, enum: ['leader', 'co-leader', 'member'], default: 'member' },
+    role: { type: String, enum: ['leader', 'co-leader', 'elder', 'officer', 'member'], default: 'member' },
     joinedAt: { type: Date, default: Date.now },
     pointsContributed: { type: Number, default: 0 },
     weeklyContribution: { type: Number, default: 0 },
@@ -123,6 +146,12 @@ const clanSchema = new Schema<IClanDocument>(
       },
     ],
     treasury: { type: Number, default: 0 },
+    pendingMembers: [{
+      user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+      requestedAt: { type: Date, default: Date.now },
+      message: { type: String, maxlength: 200 },
+    }],
+    banner: { type: String, default: '' },
     streak: {
       current: { type: Number, default: 0 },
       best: { type: Number, default: 0 },
@@ -134,6 +163,11 @@ const clanSchema = new Schema<IClanDocument>(
     season: {
       number: { type: Number, default: 1 },
       points: { type: Number, default: 0 },
+    },
+    settings: {
+      minLevel: { type: Number, default: 0, min: 0 },
+      requireVerification: { type: Boolean, default: false },
+      autoKickDays: { type: Number, default: 0, min: 0 },
     },
     activePerks: [{ type: String }],
     purchasedUpgrades: [

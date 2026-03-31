@@ -54,6 +54,13 @@ router.get('/likes/sent', matchController.getSentLikes);
 router.post('/like/:targetUserId', requireVerification, validate(likeUserValidation), matchController.likeUser);
 
 /**
+ * @route   POST /api/v1/matches/request/:targetUserId
+ * @desc    Send a match request (visible to recipient, costs more)
+ * @access  Private
+ */
+router.post('/request/:targetUserId', requireVerification, validate(likeUserValidation), matchController.sendMatchRequest);
+
+/**
  * @route   POST /api/v1/matches/pass/:targetUserId
  * @desc    Pass a user (swipe left)
  * @access  Private

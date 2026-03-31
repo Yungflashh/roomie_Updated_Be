@@ -44,12 +44,28 @@ const points_service_1 = __importDefault(require("./points.service"));
 const logger_1 = __importDefault(require("../utils/logger"));
 const socket_config_1 = require("../config/socket.config");
 class ClanService {
+    // ─── Permission Helpers ──────────────────────────────────────────────────
+    /** Check if actorRole has at least the required rank level */
+    static hasRank(actorRole, requiredRole) {
+        return (Clan_1.RANK_WEIGHTS[actorRole] || 0) >= (Clan_1.RANK_WEIGHTS[requiredRole] || 0);
+    }
+    /** Check if actor outranks target */
+    static outranks(actorRole, targetRole) {
+        return (Clan_1.RANK_WEIGHTS[actorRole] || 0) > (Clan_1.RANK_WEIGHTS[targetRole] || 0);
+    }
     // ─── Clan CRUD ───────────────────────────────────────────────────────────
     /**
      * Create a new clan. Leader must spend 500 points.
      */
     async createClan(userId, data) {
         try {
+            // Premium required
+            const { User: CreatorUser } = await Promise.resolve().then(() => __importStar(require('../models')));
+            const creator = await CreatorUser.findById(userId).select('subscription').lean();
+            const creatorPlan = creator?.subscription?.plan;
+            if (!creatorPlan || creatorPlan === 'free') {
+                throw new Error('Premium membership required to create or join clans.');
+            }
             // Check user is not already in a clan
             const existing = await Clan_1.Clan.findOne({ 'members.user': userId });
             if (existing) {
@@ -98,9 +114,9 @@ class ClanService {
     async getClan(clanId) {
         try {
             const clan = await Clan_1.Clan.findById(clanId)
-                .populate('leader', 'firstName lastName profilePhoto')
-                .populate('coLeaders', 'firstName lastName profilePhoto')
-                .populate('members.user', 'firstName lastName profilePhoto');
+                .populate('leader', 'firstName lastName profilePhoto lastSeen privacySettings')
+                .populate('coLeaders', 'firstName lastName profilePhoto lastSeen privacySettings')
+                .populate('members.user', 'firstName lastName profilePhoto lastSeen privacySettings');
             return clan;
         }
         catch (error) {
@@ -130,7 +146,7 @@ class ClanService {
             const sort = sortOptions[sortBy] || sortOptions.totalPoints;
             const [clans, total] = await Promise.all([
                 Clan_1.Clan.find(query)
-                    .populate('leader', 'firstName lastName profilePhoto')
+                    .populate('leader', 'firstName lastName profilePhoto lastSeen privacySettings')
                     .sort(sort)
                     .skip((page - 1) * limit)
                     .limit(limit),
@@ -150,7 +166,7 @@ class ClanService {
         try {
             const sortField = period === 'weekly' ? 'weeklyPoints' : period === 'monthly' ? 'monthlyPoints' : 'totalPoints';
             return Clan_1.Clan.find()
-                .populate('leader', 'firstName lastName profilePhoto')
+                .populate('leader', 'firstName lastName profilePhoto lastSeen privacySettings')
                 .sort({ [sortField]: -1 })
                 .limit(limit);
         }
@@ -175,6 +191,20 @@ class ClanService {
                 throw new Error('This clan is invite-only.');
             if (clan.members.length >= clan.maxMembers)
                 throw new Error('Clan is full.');
+            // Premium required to join clans
+            const { User } = await Promise.resolve().then(() => __importStar(require('../models')));
+            const joiner = await User.findById(userId).select('gamification verified subscription').lean();
+            const plan = joiner?.subscription?.plan;
+            if (!plan || plan === 'free') {
+                throw new Error('Premium membership required to join clans. Upgrade to unlock clan features!');
+            }
+            // Enforce clan settings
+            if (clan.settings?.requireVerification && !joiner?.verified) {
+                throw new Error('This clan requires verified members.');
+            }
+            if (clan.settings?.minLevel && (joiner?.gamification?.level || 1) < clan.settings.minLevel) {
+                throw new Error(`This clan requires level ${clan.settings.minLevel}+. You are level ${joiner?.gamification?.level || 1}.`);
+            }
             clan.members.push({
                 user: new mongoose_1.default.Types.ObjectId(userId),
                 role: 'member',
@@ -219,6 +249,58 @@ class ClanService {
                 throw new Error('Invalid invite code.');
             if (clan.members.length >= clan.maxMembers)
                 throw new Error('Clan is full.');
+            // Premium required
+            const { User: UserCheck } = await Promise.resolve().then(() => __importStar(require('../models')));
+            const inviteJoiner = await UserCheck.findById(userId).select('subscription').lean();
+            const invitePlan = inviteJoiner?.subscription?.plan;
+            if (!invitePlan || invitePlan === 'free') {
+                throw new Error('Premium membership required to join clans. Upgrade to unlock clan features!');
+            }
+            // Check if already pending
+            if (clan.pendingMembers?.some(p => p.user.toString() === userId)) {
+                throw new Error('You already have a pending request for this clan.');
+            }
+            // Closed clans require approval
+            if (!clan.isOpen) {
+                logger_1.default.info(`[joinByInviteCode] Clan is closed. Adding ${userId} to pendingMembers via $push`);
+                const updateResult = await Clan_1.Clan.findByIdAndUpdate(clan._id, {
+                    $push: {
+                        pendingMembers: {
+                            user: new mongoose_1.default.Types.ObjectId(userId),
+                            requestedAt: new Date(),
+                        },
+                    },
+                }, { new: true });
+                logger_1.default.info(`[joinByInviteCode] After $push, pendingMembers count: ${updateResult?.pendingMembers?.length}`);
+                logger_1.default.info(`[joinByInviteCode] pendingMembers: ${JSON.stringify(updateResult?.pendingMembers)}`);
+                const updatedClan = updateResult;
+                // Notify leader & co-leaders
+                const officers = clan.members.filter(m => ClanService.hasRank(m.role, 'elder'));
+                for (const officer of officers) {
+                    try {
+                        await notification_service_1.default.createNotification({
+                            user: officer.user.toString(),
+                            type: 'system',
+                            title: 'Pending Member Request',
+                            body: `Someone wants to join your clan [${clan.tag}] — review pending requests.`,
+                            data: { clanId: clan._id.toString() },
+                        });
+                    }
+                    catch (e) { /* silent */ }
+                }
+                logger_1.default.info(`User ${userId} pending approval for clan ${clan.name}`);
+                return updatedClan || clan;
+            }
+            // Enforce clan settings
+            const { User: UserModel } = await Promise.resolve().then(() => __importStar(require('../models')));
+            const joiner = await UserModel.findById(userId).select('gamification verified').lean();
+            if (clan.settings?.requireVerification && !joiner?.verified) {
+                throw new Error('This clan requires verified members.');
+            }
+            if (clan.settings?.minLevel && (joiner?.gamification?.level || 1) < clan.settings.minLevel) {
+                throw new Error(`This clan requires level ${clan.settings.minLevel}+. You are level ${joiner?.gamification?.level || 1}.`);
+            }
+            // Open clan: join directly
             clan.members.push({
                 user: new mongoose_1.default.Types.ObjectId(userId),
                 role: 'member',
@@ -241,12 +323,12 @@ class ClanService {
             catch (e) {
                 logger_1.default.warn('Clan join notification error:', e);
             }
-            // Invite rewards: joiner gets welcome bonus, inviter (leader) gets referral bonus
+            // Invite rewards
             try {
-                await points_service_1.default.addPoints({ userId, amount: 50, type: 'bonus', reason: `Welcome bonus for joining clan [${clan.tag}]`, metadata: { clanId: clan._id.toString() } });
-                await points_service_1.default.addPoints({ userId: clan.leader.toString(), amount: 30, type: 'bonus', reason: `Referral bonus — new member joined [${clan.tag}] via invite`, metadata: { clanId: clan._id.toString(), referredUserId: userId } });
-                await notification_service_1.default.createNotification({ user: userId, type: 'achievement', title: 'Welcome Bonus!', body: `You earned 50 points for joining clan [${clan.tag}]!`, data: { clanId: clan._id.toString() } });
-                await notification_service_1.default.createNotification({ user: clan.leader.toString(), type: 'achievement', title: 'Referral Bonus!', body: `You earned 30 points — someone joined via your invite code!`, data: { clanId: clan._id.toString() } });
+                await points_service_1.default.addPoints({ userId, amount: 10, type: 'bonus', reason: `Welcome bonus for joining clan [${clan.tag}]`, metadata: { clanId: clan._id.toString() } });
+                await points_service_1.default.addPoints({ userId: clan.leader.toString(), amount: 5, type: 'bonus', reason: `Referral bonus — new member joined [${clan.tag}] via invite`, metadata: { clanId: clan._id.toString(), referredUserId: userId } });
+                await notification_service_1.default.createNotification({ user: userId, type: 'achievement', title: 'Welcome Bonus!', body: `You earned 10 points for joining clan [${clan.tag}]!`, data: { clanId: clan._id.toString() } });
+                await notification_service_1.default.createNotification({ user: clan.leader.toString(), type: 'achievement', title: 'Referral Bonus!', body: `You earned 5 points — someone joined via your invite code!`, data: { clanId: clan._id.toString() } });
             }
             catch (e) {
                 logger_1.default.warn('Invite reward error:', e);
@@ -304,16 +386,16 @@ class ClanService {
             if (!clan)
                 throw new Error('Clan not found.');
             const kicker = clan.members.find((m) => m.user.toString() === leaderId);
-            if (!kicker || (kicker.role !== 'leader' && kicker.role !== 'co-leader')) {
-                throw new Error('Only leaders and co-leaders can kick members.');
+            if (!kicker || !ClanService.hasRank(kicker.role, 'elder')) {
+                throw new Error('You need Elder rank or higher to kick members.');
             }
             const target = clan.members.find((m) => m.user.toString() === targetUserId);
             if (!target)
                 throw new Error('User is not in this clan.');
             if (target.role === 'leader')
                 throw new Error('Cannot kick the clan leader.');
-            if (target.role === 'co-leader' && kicker.role !== 'leader') {
-                throw new Error('Only the leader can kick co-leaders.');
+            if (!ClanService.outranks(kicker.role, target.role)) {
+                throw new Error('You can only kick members ranked below you.');
             }
             clan.members = clan.members.filter((m) => m.user.toString() !== targetUserId);
             clan.coLeaders = clan.coLeaders.filter((id) => id.toString() !== targetUserId);
@@ -341,35 +423,49 @@ class ClanService {
         }
     }
     /**
-     * Promote a member to co-leader (leader only).
+     * Promote/demote a member. Co-leader+ can change ranks, but only to ranks below their own.
      */
-    async promoteMember(leaderId, clanId, targetUserId, role) {
+    async promoteMember(actorId, clanId, targetUserId, role) {
         try {
             const clan = await Clan_1.Clan.findById(clanId);
             if (!clan)
                 throw new Error('Clan not found.');
-            if (clan.leader.toString() !== leaderId) {
-                throw new Error('Only the clan leader can promote members.');
+            const actor = clan.members.find(m => m.user.toString() === actorId);
+            if (!actor || !ClanService.hasRank(actor.role, 'co-leader')) {
+                throw new Error('You need Co-Leader rank or higher to change roles.');
             }
-            const member = clan.members.find((m) => m.user.toString() === targetUserId);
-            if (!member)
+            const target = clan.members.find(m => m.user.toString() === targetUserId);
+            if (!target)
                 throw new Error('User is not in this clan.');
-            if (member.role === 'leader')
+            if (target.role === 'leader')
                 throw new Error('Cannot change the leader role this way.');
-            member.role = role;
+            if (role === 'leader')
+                throw new Error('Cannot promote to leader. Use transfer leadership instead.');
+            // Can only set a rank strictly below own rank
+            if (!ClanService.outranks(actor.role, role)) {
+                throw new Error('You can only assign ranks below your own.');
+            }
+            // Can only change someone at or below own rank (except leader)
+            if (!ClanService.outranks(actor.role, target.role) && actor.role !== target.role) {
+                throw new Error('You can only change ranks of members ranked below you.');
+            }
+            const oldRole = target.role;
+            target.role = role;
+            // Keep coLeaders array in sync
             if (role === 'co-leader') {
-                if (!clan.coLeaders.some((id) => id.toString() === targetUserId)) {
+                if (!clan.coLeaders.some(id => id.toString() === targetUserId)) {
                     clan.coLeaders.push(new mongoose_1.default.Types.ObjectId(targetUserId));
                 }
             }
             else {
-                clan.coLeaders = clan.coLeaders.filter((id) => id.toString() !== targetUserId);
+                clan.coLeaders = clan.coLeaders.filter(id => id.toString() !== targetUserId);
             }
             await clan.save();
-            // Log activity
-            const action = role === 'co-leader' ? 'was promoted to Co-Leader' : 'was demoted to Member';
+            const isPromotion = (Clan_1.RANK_WEIGHTS[role] || 0) > (Clan_1.RANK_WEIGHTS[oldRole] || 0);
+            const roleLabel = role.charAt(0).toUpperCase() + role.slice(1).replace('-', ' ');
+            const action = isPromotion ? `was promoted to ${roleLabel}` : `was set to ${roleLabel}`;
             await this.logActivity(clan._id.toString(), 'member_promoted', targetUserId, action);
-            logger_1.default.info(`User ${targetUserId} promoted to ${role} in clan ${clan.name}`);
+            logger_1.default.info(`User ${targetUserId} set to ${role} in clan ${clan.name} by ${actorId}`);
             return clan;
         }
         catch (error) {
@@ -378,26 +474,71 @@ class ClanService {
         }
     }
     /**
-     * Update clan settings (leader only).
+     * Update clan settings. Leader can change all. Name & banner cost treasury.
      */
     async updateClan(userId, clanId, updates) {
         try {
             const clan = await Clan_1.Clan.findById(clanId);
             if (!clan)
                 throw new Error('Clan not found.');
-            if (clan.leader.toString() !== userId) {
+            const member = clan.members.find(m => m.user.toString() === userId);
+            if (!member || !ClanService.hasRank(member.role, 'leader')) {
                 throw new Error('Only the clan leader can update settings.');
             }
-            if (updates.name !== undefined)
+            // Name change costs 300 treasury
+            if (updates.name !== undefined && updates.name !== clan.name) {
+                const NAME_CHANGE_COST = 300;
+                if (clan.treasury < NAME_CHANGE_COST) {
+                    throw new Error(`Changing clan name costs ${NAME_CHANGE_COST} treasury points. Current balance: ${clan.treasury}.`);
+                }
+                clan.treasury -= NAME_CHANGE_COST;
                 clan.name = updates.name;
+                await this.logActivity(clanId, 'treasury_spent', userId, `spent ${NAME_CHANGE_COST} treasury to change clan name`);
+            }
+            // Banner change costs 200 treasury
+            if (updates.banner !== undefined && updates.banner !== clan.banner) {
+                const BANNER_CHANGE_COST = 200;
+                if (clan.treasury < BANNER_CHANGE_COST) {
+                    throw new Error(`Changing clan banner costs ${BANNER_CHANGE_COST} treasury points. Current balance: ${clan.treasury}.`);
+                }
+                clan.treasury -= BANNER_CHANGE_COST;
+                clan.banner = updates.banner;
+                await this.logActivity(clanId, 'treasury_spent', userId, `spent ${BANNER_CHANGE_COST} treasury to change clan banner`);
+            }
             if (updates.description !== undefined)
                 clan.description = updates.description;
             if (updates.emoji !== undefined)
                 clan.emoji = updates.emoji;
             if (updates.color !== undefined)
                 clan.color = updates.color;
-            if (updates.isOpen !== undefined)
+            if (updates.isOpen !== undefined) {
                 clan.isOpen = updates.isOpen;
+                // Auto-accept all pending members when switching to open
+                if (updates.isOpen && clan.pendingMembers?.length) {
+                    for (const pending of clan.pendingMembers) {
+                        if (clan.members.length < clan.maxMembers) {
+                            clan.members.push({
+                                user: pending.user,
+                                role: 'member',
+                                joinedAt: new Date(),
+                                pointsContributed: 0,
+                            });
+                        }
+                    }
+                    clan.pendingMembers = [];
+                }
+            }
+            // Update clan settings
+            if (updates.settings) {
+                if (!clan.settings)
+                    clan.settings = {};
+                if (updates.settings.minLevel !== undefined)
+                    clan.settings.minLevel = Math.max(0, Math.floor(updates.settings.minLevel));
+                if (updates.settings.requireVerification !== undefined)
+                    clan.settings.requireVerification = updates.settings.requireVerification;
+                if (updates.settings.autoKickDays !== undefined)
+                    clan.settings.autoKickDays = Math.max(0, Math.floor(updates.settings.autoKickDays));
+            }
             await clan.save();
             logger_1.default.info(`Clan ${clan.tag} updated by ${userId}`);
             return clan;
@@ -405,6 +546,170 @@ class ClanService {
         catch (error) {
             logger_1.default.error('updateClan error:', error);
             throw error;
+        }
+    }
+    /**
+     * Transfer leadership to another member. Leader only.
+     */
+    async transferLeadership(userId, clanId, newLeaderId) {
+        try {
+            const clan = await Clan_1.Clan.findById(clanId);
+            if (!clan)
+                throw new Error('Clan not found.');
+            if (clan.leader.toString() !== userId)
+                throw new Error('Only the clan leader can transfer leadership.');
+            if (userId === newLeaderId)
+                throw new Error('You are already the leader.');
+            const newLeader = clan.members.find(m => m.user.toString() === newLeaderId);
+            if (!newLeader)
+                throw new Error('User is not in this clan.');
+            // Demote current leader to co-leader
+            const oldLeader = clan.members.find(m => m.user.toString() === userId);
+            if (oldLeader)
+                oldLeader.role = 'co-leader';
+            // Promote new leader
+            newLeader.role = 'leader';
+            clan.leader = new mongoose_1.default.Types.ObjectId(newLeaderId);
+            // Update coLeaders array
+            clan.coLeaders = clan.coLeaders.filter(id => id.toString() !== newLeaderId);
+            if (!clan.coLeaders.some(id => id.toString() === userId)) {
+                clan.coLeaders.push(new mongoose_1.default.Types.ObjectId(userId));
+            }
+            await clan.save();
+            await this.logActivity(clanId, 'leadership_transfer', newLeaderId, 'was made the new clan leader');
+            try {
+                await notification_service_1.default.createNotification({
+                    user: newLeaderId,
+                    type: 'system',
+                    title: 'You are now Clan Leader!',
+                    body: `Leadership of [${clan.tag}] has been transferred to you.`,
+                    data: { clanId },
+                });
+            }
+            catch (e) {
+                logger_1.default.warn('Transfer notification error:', e);
+            }
+            logger_1.default.info(`Leadership of clan ${clan.tag} transferred from ${userId} to ${newLeaderId}`);
+            return clan;
+        }
+        catch (error) {
+            logger_1.default.error('transferLeadership error:', error);
+            throw error;
+        }
+    }
+    /**
+     * Auto-kick members inactive for longer than the clan's autoKickDays setting.
+     */
+    /**
+     * Co-leader claims leadership if the current leader has been inactive for 14+ days.
+     * Costs 1000 personal points.
+     */
+    async claimLeadership(userId, clanId) {
+        try {
+            const clan = await Clan_1.Clan.findById(clanId);
+            if (!clan)
+                throw new Error('Clan not found.');
+            const actor = clan.members.find(m => m.user.toString() === userId);
+            if (!actor || actor.role !== 'co-leader') {
+                throw new Error('Only co-leaders can claim leadership.');
+            }
+            // Check leader inactivity
+            const { User: UserModel } = await Promise.resolve().then(() => __importStar(require('../models')));
+            const leader = await UserModel.findById(clan.leader).select('lastSeen').lean();
+            const daysSinceActive = leader?.lastSeen
+                ? Math.floor((Date.now() - new Date(leader.lastSeen).getTime()) / (24 * 60 * 60 * 1000))
+                : 999;
+            if (daysSinceActive < 14) {
+                throw new Error(`Leader was active ${daysSinceActive} day(s) ago. Must be inactive for 14+ days.`);
+            }
+            // Deduct 1000 personal points
+            const CLAIM_COST = 1000;
+            const canAfford = await points_service_1.default.hasEnoughPoints(userId, CLAIM_COST);
+            if (!canAfford) {
+                throw new Error(`Claiming leadership costs ${CLAIM_COST} points. You don't have enough.`);
+            }
+            await points_service_1.default.deductPoints({ userId, amount: CLAIM_COST, type: 'spent', reason: `Claimed leadership of clan [${clan.tag}]` });
+            // Demote old leader to member
+            const oldLeader = clan.members.find(m => m.user.toString() === clan.leader.toString());
+            if (oldLeader)
+                oldLeader.role = 'member';
+            // Promote co-leader to leader
+            actor.role = 'leader';
+            clan.leader = new mongoose_1.default.Types.ObjectId(userId);
+            clan.coLeaders = clan.coLeaders.filter(id => id.toString() !== userId);
+            await clan.save();
+            await this.logActivity(clanId, 'leadership_claim', userId, 'claimed leadership (previous leader inactive 14+ days)');
+            try {
+                await notification_service_1.default.createNotification({
+                    user: clan.leader.toString(),
+                    type: 'system',
+                    title: 'You are now Clan Leader!',
+                    body: `You claimed leadership of [${clan.tag}] after the previous leader was inactive for ${daysSinceActive} days.`,
+                    data: { clanId },
+                });
+                // Notify old leader
+                if (oldLeader) {
+                    await notification_service_1.default.createNotification({
+                        user: oldLeader.user.toString(),
+                        type: 'system',
+                        title: 'Leadership Transferred',
+                        body: `Leadership of [${clan.tag}] was claimed by a co-leader due to your inactivity.`,
+                        data: { clanId },
+                    });
+                }
+            }
+            catch (e) {
+                logger_1.default.warn('Claim leadership notification error:', e);
+            }
+            logger_1.default.info(`User ${userId} claimed leadership of clan ${clan.tag} (leader inactive ${daysSinceActive}d)`);
+            return clan;
+        }
+        catch (error) {
+            logger_1.default.error('claimLeadership error:', error);
+            throw error;
+        }
+    }
+    async autoKickInactive(clanId) {
+        try {
+            const clan = await Clan_1.Clan.findById(clanId);
+            if (!clan || !clan.settings?.autoKickDays || clan.settings.autoKickDays <= 0) {
+                return { kicked: [] };
+            }
+            const { User: UserModel } = await Promise.resolve().then(() => __importStar(require('../models')));
+            const cutoff = new Date(Date.now() - clan.settings.autoKickDays * 24 * 60 * 60 * 1000);
+            const kicked = [];
+            for (const member of clan.members) {
+                if (member.role === 'leader')
+                    continue; // never auto-kick leader
+                const u = await UserModel.findById(member.user).select('lastSeen').lean();
+                if (u?.lastSeen && new Date(u.lastSeen) < cutoff) {
+                    kicked.push(member.user.toString());
+                }
+            }
+            if (kicked.length > 0) {
+                clan.members = clan.members.filter(m => !kicked.includes(m.user.toString()));
+                clan.coLeaders = clan.coLeaders.filter(id => !kicked.includes(id.toString()));
+                await clan.save();
+                for (const uid of kicked) {
+                    try {
+                        await notification_service_1.default.createNotification({
+                            user: uid,
+                            type: 'system',
+                            title: 'Removed from Clan',
+                            body: `You were removed from [${clan.tag}] due to ${clan.settings.autoKickDays} days of inactivity.`,
+                            data: { clanId },
+                        });
+                    }
+                    catch (e) { /* silent */ }
+                }
+                await this.logActivity(clanId, 'auto_kick', clan.leader.toString(), `${kicked.length} inactive member(s) auto-removed`);
+                logger_1.default.info(`Auto-kicked ${kicked.length} inactive members from clan ${clan.tag}`);
+            }
+            return { kicked };
+        }
+        catch (error) {
+            logger_1.default.error('autoKickInactive error:', error);
+            return { kicked: [] };
         }
     }
     /**
@@ -434,9 +739,9 @@ class ClanService {
     async getMyClan(userId) {
         try {
             return Clan_1.Clan.findOne({ 'members.user': userId })
-                .populate('leader', 'firstName lastName profilePhoto')
-                .populate('coLeaders', 'firstName lastName profilePhoto')
-                .populate('members.user', 'firstName lastName profilePhoto');
+                .populate('leader', 'firstName lastName profilePhoto lastSeen privacySettings')
+                .populate('coLeaders', 'firstName lastName profilePhoto lastSeen privacySettings')
+                .populate('members.user', 'firstName lastName profilePhoto lastSeen privacySettings');
         }
         catch (error) {
             logger_1.default.error('getMyClan error:', error);
@@ -1411,7 +1716,7 @@ class ClanService {
         { id: 'badge_elite', name: 'Elite Badge', description: 'Show the Elite badge on your clan profile', icon: 'ribbon', cost: 800, type: 'cosmetic', requiredLevel: 3 },
         { id: 'badge_legendary', name: 'Legendary Badge', description: 'Show the Legendary badge on your clan profile', icon: 'medal', cost: 1500, type: 'cosmetic', requiredLevel: 5 },
         { id: 'war_slots_extra', name: 'Extra War Slot', description: 'Allow 2 active wars simultaneously', icon: 'git-branch', cost: 1000, type: 'upgrade', requiredLevel: 4, effect: { type: 'extra_war_slots', value: 1 } },
-        { id: 'point_rain', name: 'Point Rain', description: 'All members get 50 bonus points', icon: 'gift', cost: 300, type: 'boost', effect: { type: 'point_rain', value: 50 } },
+        { id: 'point_rain', name: 'Point Rain', description: 'All members get 10 bonus points', icon: 'gift', cost: 300, type: 'boost', effect: { type: 'point_rain', value: 10 } },
     ];
     /**
      * Get perks unlocked for a clan based on its level.
@@ -1464,8 +1769,8 @@ class ClanService {
             if (!clan)
                 throw new Error('Clan not found.');
             const member = clan.members.find(m => m.user.toString() === userId);
-            if (!member || (member.role !== 'leader' && member.role !== 'co-leader')) {
-                throw new Error('Only leaders and co-leaders can make purchases.');
+            if (!member || !ClanService.hasRank(member.role, 'co-leader')) {
+                throw new Error('You need Co-Leader rank or higher to make purchases.');
             }
             const item = ClanService.SHOP_ITEMS.find(i => i.id === itemId);
             if (!item)
@@ -1698,8 +2003,10 @@ class ClanService {
         const clan = await Clan_1.Clan.findById(clanId);
         if (!clan)
             throw new Error('Clan not found.');
-        if (clan.leader.toString() !== userId)
-            throw new Error('Only the leader can set announcements.');
+        const member = clan.members.find(m => m.user.toString() === userId);
+        if (!member || !ClanService.hasRank(member.role, 'co-leader')) {
+            throw new Error('You need Co-Leader rank or higher to set announcements.');
+        }
         clan.announcement = text.slice(0, 500);
         await clan.save();
         if (text) {
@@ -1748,9 +2055,101 @@ class ClanService {
     }
     async getSeasonLeaderboard(limit = 50) {
         return Clan_1.Clan.find()
-            .populate('leader', 'firstName lastName profilePhoto')
+            .populate('leader', 'firstName lastName profilePhoto lastSeen privacySettings')
             .sort({ 'season.points': -1 })
             .limit(limit);
+    }
+    // ─── Pending Members ─────────────────────────────────────────────────
+    async getPendingMembers(clanId, userId) {
+        const clan = await Clan_1.Clan.findById(clanId).lean();
+        if (!clan)
+            throw new Error('Clan not found.');
+        logger_1.default.info(`[getPendingMembers] clanId=${clanId}, userId=${userId}`);
+        logger_1.default.info(`[getPendingMembers] clan.pendingMembers raw: ${JSON.stringify(clan.pendingMembers)}`);
+        logger_1.default.info(`[getPendingMembers] clan keys: ${Object.keys(clan).join(', ')}`);
+        const member = clan.members.find(m => m.user.toString() === userId);
+        if (!member || !ClanService.hasRank(member.role, 'elder')) {
+            throw new Error('You need Elder rank or higher to view pending members.');
+        }
+        const pending = clan.pendingMembers || [];
+        logger_1.default.info(`[getPendingMembers] pending count: ${pending.length}`);
+        if (pending.length === 0)
+            return [];
+        // Manually populate user data
+        const { User: UserModel } = await Promise.resolve().then(() => __importStar(require('../models')));
+        const userIds = pending.map(p => p.user);
+        const users = await UserModel.find({ _id: { $in: userIds } })
+            .select('firstName lastName profilePhoto verified')
+            .lean();
+        const userMap = new Map(users.map(u => [u._id.toString(), u]));
+        return pending.map(p => ({
+            user: userMap.get(p.user.toString()) || { _id: p.user, firstName: 'Unknown', lastName: '' },
+            requestedAt: p.requestedAt,
+            message: p.message,
+        }));
+    }
+    async acceptPendingMember(clanId, actorId, targetUserId) {
+        const clan = await Clan_1.Clan.findById(clanId);
+        if (!clan)
+            throw new Error('Clan not found.');
+        const actor = clan.members.find(m => m.user.toString() === actorId);
+        if (!actor || !ClanService.hasRank(actor.role, 'elder')) {
+            throw new Error('You need Elder rank or higher to accept members.');
+        }
+        const hasPending = (clan.pendingMembers || []).some(p => p.user.toString() === targetUserId);
+        if (!hasPending)
+            throw new Error('No pending request from this user.');
+        if (clan.members.length >= clan.maxMembers)
+            throw new Error('Clan is full.');
+        // Remove from pending, add as member — use atomic ops
+        await Clan_1.Clan.findByIdAndUpdate(clanId, {
+            $pull: { pendingMembers: { user: new mongoose_1.default.Types.ObjectId(targetUserId) } },
+            $push: { members: { user: new mongoose_1.default.Types.ObjectId(targetUserId), role: 'member', joinedAt: new Date(), pointsContributed: 0 } },
+        });
+        await this.logActivity(clanId, 'member_joined', targetUserId, 'was accepted into the clan');
+        try {
+            await notification_service_1.default.createNotification({
+                user: targetUserId,
+                type: 'system',
+                title: 'Clan Request Accepted!',
+                body: `You've been accepted into clan [${clan.tag}]!`,
+                data: { clanId },
+            });
+            // Welcome bonus
+            await points_service_1.default.addPoints({ userId: targetUserId, amount: 50, type: 'bonus', reason: `Welcome bonus for joining clan [${clan.tag}]`, metadata: { clanId } });
+        }
+        catch (e) {
+            logger_1.default.warn('Accept pending notification error:', e);
+        }
+        return clan;
+    }
+    async rejectPendingMember(clanId, actorId, targetUserId) {
+        const clan = await Clan_1.Clan.findById(clanId);
+        if (!clan)
+            throw new Error('Clan not found.');
+        const actor = clan.members.find(m => m.user.toString() === actorId);
+        if (!actor || !ClanService.hasRank(actor.role, 'elder')) {
+            throw new Error('You need Elder rank or higher to reject members.');
+        }
+        const hasPending = (clan.pendingMembers || []).some(p => p.user.toString() === targetUserId);
+        if (!hasPending)
+            throw new Error('No pending request from this user.');
+        await Clan_1.Clan.findByIdAndUpdate(clanId, {
+            $pull: { pendingMembers: { user: new mongoose_1.default.Types.ObjectId(targetUserId) } },
+        });
+        try {
+            await notification_service_1.default.createNotification({
+                user: targetUserId,
+                type: 'system',
+                title: 'Clan Request Declined',
+                body: `Your request to join clan [${clan.tag}] was declined.`,
+                data: { clanId },
+            });
+        }
+        catch (e) {
+            logger_1.default.warn('Reject pending notification error:', e);
+        }
+        return clan;
     }
 }
 exports.default = new ClanService();

@@ -35,13 +35,31 @@ declare class MatchService {
         userPoints?: number;
     }>;
     /**
-     * Like a user (with points deduction)
+     * Check daily action limits based on subscription plan.
+     */
+    private checkDailyLimit;
+    /**
+     * Like a user (cheap — 2 pts). Anonymous to recipient unless they're premium.
+     * If mutual like → auto-match.
      */
     likeUser(userId: string, targetUserId: string): Promise<{
         isMatch: boolean;
         match?: any;
         pointsDeducted?: number;
     }>;
+    /**
+     * Send a match request (expensive — 15 pts). Recipient can see who sent it.
+     * If target already liked you → auto-match.
+     */
+    sendMatchRequest(userId: string, targetUserId: string): Promise<{
+        isMatch: boolean;
+        match?: any;
+        pointsDeducted?: number;
+    }>;
+    /**
+     * Internal: create a match between two users who mutually like each other.
+     */
+    private _createMatch;
     /**
      * Pass a user — soft skip, does NOT permanently exclude them.
      * The user will reappear in future discover queries.
@@ -65,6 +83,10 @@ declare class MatchService {
     unmatch(userId: string, matchId: string): Promise<void>;
     /**
      * Get users who liked current user
+     */
+    /**
+     * Get users who liked you.
+     * Premium: full profiles. Free: only count + blurred.
      */
     getLikes(userId: string): Promise<any[]>;
     /**

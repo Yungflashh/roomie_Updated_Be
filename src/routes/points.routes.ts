@@ -31,6 +31,23 @@ router.get('/transactions', pointsController.getTransactionHistory);
 router.post('/daily-bonus', pointsController.claimDailyBonus);
 
 /**
+ * @route   GET /api/v1/points/daily-cap
+ * @desc    Get today's earning progress vs daily cap
+ * @access  Private
+ */
+router.get('/daily-cap', async (req: any, res: any) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ success: false, message: 'Unauthorized' }); return; }
+    const pointsService = (await import('../services/points.service')).default;
+    const data = await pointsService.getDailyEarned(userId);
+    res.json({ success: true, data });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
  * @route   GET /api/v1/points/config
  * @desc    Get points system configuration
  * @access  Private

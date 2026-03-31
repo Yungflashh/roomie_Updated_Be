@@ -21,6 +21,9 @@ export interface IPointsConfigDocument extends Document {
     premiumMatchDiscount: number;
     premiumGameDiscount: number;
     premiumDailyBonus: number;
+    dailyFreeEarningCap: number;
+    pointDecayDays: number;
+    pointDecayPercent: number;
     isActive: boolean;
     createdAt: Date;
     updatedAt: Date;

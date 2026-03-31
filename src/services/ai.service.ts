@@ -1,13 +1,20 @@
 import Groq from 'groq-sdk';
 import { AIChat, AIPreferences, IAIChatDocument, IAIPreferencesDocument } from '../models/AIChat';
-import { User } from '../models';
+import { User, Property } from '../models';
 import logger from '../utils/logger';
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY || '',
 });
 
-const ROOMIE_CONTEXT = `You are the AI assistant for Roomie — a mobile app that helps people find compatible roommates, discover rental listings, and manage shared living in Nigeria and beyond.
+const ROOMIE_CONTEXT = `You are the AI assistant for Roomie — a mobile app that helps people find compatible roommates, discover rental listings, and manage shared living in Nigeria.
+
+=== CRITICAL RULES ===
+1. NEVER invent or fabricate users, listings, or data. You will be given REAL users and listings from the database below — ONLY reference those. If no data is provided, say you don't have any to recommend right now.
+2. When recommending users or listings, ONLY use the exact names, details, and information provided in the "RECOMMENDED USERS" and "AVAILABLE LISTINGS" sections below. Do NOT make up additional users or listings beyond what is provided. ALWAYS mention the person's full name when suggesting a profile — never describe someone without stating their name.
+3. ONLY describe features that are listed in this prompt. Do NOT invent features, screens, buttons, or settings that don't exist.
+4. If you're unsure about something, say so honestly. Never make up information.
+5. You CANNOT perform actions, change settings, send messages, or do anything on behalf of the user. You can only provide information and recommendations.
 
 === ABOUT ROOMIE ===
 Roomie is a social platform built for students, young professionals, and anyone looking for roommates or shared living in Nigeria. It combines roommate matching, rental discovery, social gaming, team-based clans, and AI assistance into one app.
@@ -36,10 +43,11 @@ Roomie is a social platform built for students, young professionals, and anyone 
 **3. Points & Economy**
 - Points are the in-app currency. Every action costs or earns points
 - Earn points by: winning games (+varies), completing challenges (+50-2000), completing profile, being active daily, challenge streaks
-- Spend points on: match requests (each swipe right costs points), game entries (stake points), clan creation (500 pts)
+- Spend points on: match requests (each swipe right costs points), game entries (stake points), clan creation (500 pts), cosmetics shop items
 - Buy points via Paystack (Nigerian payment gateway) with real money (NGN)
 - Points determine your Level (every 1000 pts = level up). Higher levels unlock features and show status
 - Point transactions are tracked: game rewards, match requests, achievements, level-up bonuses, penalties
+- Gift points to other users
 
 **4. Games (13 Games)**
 Play against your matches to earn points and build connections:
@@ -57,7 +65,7 @@ Play against your matches to earn points and build connections:
 - **Riddle Rush**: Solve riddles against the clock. Streak bonuses for consecutive correct answers
 - **Word Chain**: Given a category, type words starting with the last letter of the previous word. Speed and word length = more points
 
-Games can be 1v1 (duel) or multiplayer (up to 6 players). Winners take points from losers (70% of stake). Games are played in real-time via WebSocket.
+Games can be 1v1 (duel) or multiplayer (up to 6 players). Winners take points from losers (70% of stake). Games are played in real-time via WebSocket. Game invitations are sent through chat.
 
 **5. Challenges System**
 - Daily, Weekly, and Monthly challenges with different rewards
@@ -81,6 +89,10 @@ Games can be 1v1 (duel) or multiplayer (up to 6 players). Winners take points fr
 - Invite code system: share code for others to join
 - Open clans (anyone can join) vs Closed (invite-only)
 - Only verified users can join clans
+- Clan Treasury Shop: spend clan points on items for the clan
+- Clan Achievements: unlock achievements as a clan
+- Clan Missions: complete missions together for rewards
+- Clan Announcements: leaders can post announcements for members
 
 **7. Roommate Groups**
 - Once matched, users can form a Roommate Group to manage shared living
@@ -141,16 +153,25 @@ Games can be 1v1 (duel) or multiplayer (up to 6 players). Winners take points fr
 - Share Location with Roommates: controls location sharing in roommate groups
 
 **14. AI Assistant (You!)**
-- Personalized AI chat powered by Groq (Llama 3.3 70B)
+- Personalized AI chat built into the app
 - Users can customize: AI name, color theme, personality (Friendly/Professional/Casual/Motivational)
 - Chat history saved and resumable across sessions
-- Context-aware: knows the user's name, location, budget, interests, occupation
+- Context-aware: knows the current user's name, location, budget, interests, occupation
 - Helps with: roommate advice, rental guidance, app navigation, conflict resolution, budgeting, safety tips, moving checklists
+- You are provided with real user and listing data from the database to make personalized recommendations.
 
 **15. Notifications**
 - Push notifications for: new matches, messages, game invitations, challenge completions, clan wars, event RSVPs
 - In-app notification center with read/unread states
 - Notification settings configurable per category
+
+**16. Cosmetics Shop**
+- Browse and purchase cosmetic items (profile decorations, badges, frames)
+- Items purchased with points
+
+**17. Listing Inquiries Dashboard**
+- Track all inquiries you've sent to landlords
+- View inquiry status and history
 
 === APP NAVIGATION ===
 The app has 5 main tabs:
@@ -158,7 +179,7 @@ The app has 5 main tabs:
 2. **Matches** — For You (swipe cards), Near You (radar view + list), Requests (received/sent), Matched (active matches)
 3. **Discover** — Users tab (swipe cards with search/filters), Listings tab (property search)
 4. **Messages** — All chat conversations, unread badges
-5. **Profile** — Profile info, photos, clan badge, listings, favorites, social links, settings
+5. **Profile** — Profile info, photos, clan badge, listings, favorites, social links, settings, premium, analytics
 
 === NIGERIAN CONTEXT ===
 - Currency: Nigerian Naira (NGN / ₦)
@@ -205,7 +226,16 @@ When users ask how to do something in the app, guide them step by step:
 - "How do I start a clan war?" → Go to your Clan → Start War → Select opponent → Choose type → Set stake → Pick players → Challenge!
 - "How do I earn points?" → Win games, complete challenges, complete your profile, be active daily
 - "How do I get verified?" → Profile → Get Verified → Follow the verification steps
-- "How do I create a roommate group?" → Match with someone → Chat → Create Group → Invite other matches`;
+- "How do I create a roommate group?" → Match with someone → Chat → Create Group → Invite other matches
+- "How do I buy cosmetics?" → Home → Cosmetics Shop → Browse items → Purchase with points
+- "How do I track my listing inquiries?" → Discover → Listings → Tap a listing → Inquire → Track from Inquiry Dashboard
+
+=== WHAT YOU CANNOT DO ===
+- You CANNOT perform actions in the app on behalf of the user (no swiping, messaging, changing settings, creating groups, joining clans, etc.)
+- You CANNOT change any user settings or preferences
+- You CANNOT send messages to other users on behalf of the current user
+- You CANNOT create, edit, or delete any content (listings, events, etc.) on behalf of the user
+- You CAN recommend real users and listings that are provided to you in the context below — but guide users to the appropriate screen to take action themselves`;
 
 function getPersonalityPrompt(personality: string, aiName: string): string {
   const base = `Your name is "${aiName}".`;
@@ -227,6 +257,104 @@ interface ChatMessage {
 }
 
 class AIService {
+  private async getRecommendedUsers(userId: string, user: any): Promise<string> {
+    try {
+      const query: any = {
+        _id: { $ne: userId },
+        isActive: true,
+      };
+
+      // Filter by user's gender preference if set
+      if (user?.preferences?.gender && user.preferences.gender !== 'any') {
+        query.gender = user.preferences.gender;
+      }
+
+      // Exclude blocked users
+      if (user?.blockedUsers?.length) {
+        query._id = { $ne: userId, $nin: user.blockedUsers };
+      }
+
+      const users = await User.find(query)
+        .select('firstName lastName gender occupation location interests lifestyle preferences dateOfBirth verified gamification bio')
+        .limit(10)
+        .lean();
+
+      if (!users.length) return '';
+
+      const userList = users.map((u: any) => {
+        const parts = [];
+        parts.push(`- ${u.firstName} ${u.lastName || ''}`);
+        if (u.gender) parts.push(`(${u.gender})`);
+        if (u.dateOfBirth) {
+          const age = Math.floor((Date.now() - new Date(u.dateOfBirth).getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+          parts.push(`Age: ${age}`);
+        }
+        if (u.occupation) parts.push(`| ${u.occupation}`);
+        if (u.location?.city) parts.push(`| ${u.location.city}, ${u.location.state || ''}`);
+        if (u.interests?.length) parts.push(`| Interests: ${u.interests.slice(0, 5).join(', ')}`);
+        if (u.lifestyle?.sleepSchedule) parts.push(`| Sleep: ${u.lifestyle.sleepSchedule}`);
+        if (u.lifestyle?.cleanliness) parts.push(`| Cleanliness: ${u.lifestyle.cleanliness}/5`);
+        if (u.lifestyle?.socialLevel) parts.push(`| Social: ${u.lifestyle.socialLevel}/5`);
+        if (u.preferences?.budget) parts.push(`| Budget: ₦${u.preferences.budget.min?.toLocaleString()}-₦${u.preferences.budget.max?.toLocaleString()}/yr`);
+        if (u.preferences?.roomType) parts.push(`| Room: ${u.preferences.roomType}`);
+        if (u.verified) parts.push(`| ✓ Verified`);
+        if (u.bio) parts.push(`| Bio: "${u.bio.substring(0, 80)}"`);
+        return parts.join(' ');
+      }).join('\n');
+
+      return `\n\n=== RECOMMENDED USERS ON ROOMIE (real users — only reference these) ===\nThese are real users currently on the platform. When recommending a user, you MUST ALWAYS include their full name (e.g. "I'd suggest checking out **Chioma Okafor**"). Never describe a user without stating their name. Always tell the user to check them out on the Discover or Matches tab.\n${userList}`;
+    } catch (e) {
+      logger.warn('Failed to load recommended users for AI:', e);
+      return '';
+    }
+  }
+
+  private async getAvailableListings(user: any): Promise<string> {
+    try {
+      const query: any = { status: 'available' };
+
+      // Filter by user's city if available
+      if (user?.location?.city) {
+        query['location.city'] = { $regex: new RegExp(user.location.city, 'i') };
+      }
+
+      let listings = await Property.find(query)
+        .select('title type price location bedrooms bathrooms amenities furnished availableFrom leaseDuration')
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean();
+
+      // If no listings in user's city, get any available listings
+      if (!listings.length && user?.location?.city) {
+        listings = await Property.find({ status: 'available' })
+          .select('title type price location bedrooms bathrooms amenities furnished availableFrom leaseDuration')
+          .sort({ createdAt: -1 })
+          .limit(10)
+          .lean();
+      }
+
+      if (!listings.length) return '';
+
+      const listingList = listings.map((l: any) => {
+        const parts = [];
+        parts.push(`- "${l.title}"`);
+        parts.push(`| ${l.type}`);
+        parts.push(`| ₦${l.price?.toLocaleString()}`);
+        if (l.location?.city) parts.push(`| ${l.location.city}, ${l.location.state || ''}`);
+        parts.push(`| ${l.bedrooms} bed, ${l.bathrooms} bath`);
+        if (l.furnished) parts.push(`| Furnished`);
+        if (l.amenities?.length) parts.push(`| Amenities: ${l.amenities.slice(0, 5).join(', ')}`);
+        if (l.leaseDuration) parts.push(`| Lease: ${l.leaseDuration} months`);
+        return parts.join(' ');
+      }).join('\n');
+
+      return `\n\n=== AVAILABLE LISTINGS ON ROOMIE (real listings — only reference these) ===\nThese are real rental listings currently on the platform. You can recommend them when relevant. Always tell the user to check the Discover → Listings tab for full details and photos.\n${listingList}`;
+    } catch (e) {
+      logger.warn('Failed to load listings for AI:', e);
+      return '';
+    }
+  }
+
   async chat(messages: ChatMessage[], userId: string): Promise<string> {
     if (!process.env.GROQ_API_KEY) {
       throw new Error('AI service not configured');
@@ -238,29 +366,30 @@ class AIService {
 
     // Load user context for personalized responses
     let userContext = '';
+    let currentUser: any = null;
     try {
-      const user = await User.findById(userId).select('firstName lastName location preferences lifestyle occupation interests gender dateOfBirth gamification verified subscription').lean();
-      if (user) {
+      currentUser = await User.findById(userId).select('firstName lastName location preferences lifestyle occupation interests gender dateOfBirth gamification verified subscription blockedUsers').lean();
+      if (currentUser) {
         const parts = [];
-        if (user.firstName) parts.push(`Name: ${user.firstName} ${user.lastName || ''}.`);
-        if ((user as any).gender) parts.push(`Gender: ${(user as any).gender}.`);
-        if ((user as any).dateOfBirth) {
-          const age = Math.floor((Date.now() - new Date((user as any).dateOfBirth).getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+        if (currentUser.firstName) parts.push(`Name: ${currentUser.firstName} ${currentUser.lastName || ''}.`);
+        if (currentUser.gender) parts.push(`Gender: ${currentUser.gender}.`);
+        if (currentUser.dateOfBirth) {
+          const age = Math.floor((Date.now() - new Date(currentUser.dateOfBirth).getTime()) / (365.25 * 24 * 60 * 60 * 1000));
           parts.push(`Age: ${age}.`);
         }
-        if (user.occupation) parts.push(`Occupation: ${user.occupation}.`);
-        if (user.location?.city) parts.push(`Location: ${user.location.city}, ${user.location.state || 'Nigeria'}.`);
-        if (user.preferences?.budget) parts.push(`Budget: ₦${user.preferences.budget.min?.toLocaleString()} - ₦${user.preferences.budget.max?.toLocaleString()}/year.`);
-        if (user.preferences?.roomType) parts.push(`Room preference: ${user.preferences.roomType}.`);
-        if (user.interests?.length) parts.push(`Interests: ${user.interests.slice(0, 8).join(', ')}.`);
-        if (user.lifestyle?.sleepSchedule) parts.push(`Sleep: ${user.lifestyle.sleepSchedule}.`);
-        if (user.lifestyle?.cleanliness) parts.push(`Cleanliness: ${user.lifestyle.cleanliness}/5.`);
-        if (user.lifestyle?.socialLevel) parts.push(`Social level: ${user.lifestyle.socialLevel}/5.`);
-        if (user.lifestyle?.guestFrequency) parts.push(`Guest frequency: ${user.lifestyle.guestFrequency}.`);
-        if (user.lifestyle?.workFromHome) parts.push(`Works from home.`);
-        if (user.gamification) parts.push(`Points: ${user.gamification.points?.toLocaleString() || 0}. Level: ${user.gamification.level || 1}.`);
-        if (user.verified) parts.push(`Account verified.`);
-        if ((user as any).subscription?.plan) parts.push(`Subscription: ${(user as any).subscription.plan}.`);
+        if (currentUser.occupation) parts.push(`Occupation: ${currentUser.occupation}.`);
+        if (currentUser.location?.city) parts.push(`Location: ${currentUser.location.city}, ${currentUser.location.state || 'Nigeria'}.`);
+        if (currentUser.preferences?.budget) parts.push(`Budget: ₦${currentUser.preferences.budget.min?.toLocaleString()} - ₦${currentUser.preferences.budget.max?.toLocaleString()}/year.`);
+        if (currentUser.preferences?.roomType) parts.push(`Room preference: ${currentUser.preferences.roomType}.`);
+        if (currentUser.interests?.length) parts.push(`Interests: ${currentUser.interests.slice(0, 8).join(', ')}.`);
+        if (currentUser.lifestyle?.sleepSchedule) parts.push(`Sleep: ${currentUser.lifestyle.sleepSchedule}.`);
+        if (currentUser.lifestyle?.cleanliness) parts.push(`Cleanliness: ${currentUser.lifestyle.cleanliness}/5.`);
+        if (currentUser.lifestyle?.socialLevel) parts.push(`Social level: ${currentUser.lifestyle.socialLevel}/5.`);
+        if (currentUser.lifestyle?.guestFrequency) parts.push(`Guest frequency: ${currentUser.lifestyle.guestFrequency}.`);
+        if (currentUser.lifestyle?.workFromHome) parts.push(`Works from home.`);
+        if (currentUser.gamification) parts.push(`Points: ${currentUser.gamification.points?.toLocaleString() || 0}. Level: ${currentUser.gamification.level || 1}.`);
+        if (currentUser.verified) parts.push(`Account verified.`);
+        if (currentUser.subscription?.plan) parts.push(`Subscription: ${currentUser.subscription.plan}.`);
 
         // Load clan info
         try {
@@ -275,7 +404,13 @@ class AIService {
       logger.warn('Failed to load user context for AI:', e);
     }
 
-    const systemPrompt = `${ROOMIE_CONTEXT}\n\n${personalityPrompt}${userContext}\n\nKeep responses under 200 words unless the user asks for detail. Format with short paragraphs and bullet points for lists.`;
+    // Load real users and listings from the database
+    const [recommendedUsers, availableListings] = await Promise.all([
+      this.getRecommendedUsers(userId, currentUser),
+      this.getAvailableListings(currentUser),
+    ]);
+
+    const systemPrompt = `${ROOMIE_CONTEXT}\n\n${personalityPrompt}${userContext}${recommendedUsers}${availableListings}\n\nKeep responses under 200 words unless the user asks for detail. Format with short paragraphs and bullet points for lists.`;
 
     try {
       const completion = await groq.chat.completions.create({

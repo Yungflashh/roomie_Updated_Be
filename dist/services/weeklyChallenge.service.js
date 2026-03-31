@@ -168,7 +168,7 @@ class WeeklyChallengeService {
                 // Track clan points for challenge completion
                 try {
                     const clanService = (await Promise.resolve().then(() => __importStar(require('./clan.service')))).default;
-                    await clanService.trackMemberActivity(userId, 'challenge_complete', 15);
+                    await clanService.trackMemberActivity(userId, 'challenge_complete', 5);
                 }
                 catch (e) {
                     logger_1.default.warn('Clan tracking error:', e);
@@ -251,16 +251,16 @@ class WeeklyChallengeService {
             icon: data.icon,
             startDate: new Date(data.startDate),
             endDate: new Date(data.endDate),
-            pointsReward: data.pointsReward || 100,
+            pointsReward: data.pointsReward || 40,
             cashReward: data.cashReward || 0,
             cashCurrency: data.cashCurrency || 'NGN',
             badgeReward: data.badgeReward,
             requirements: data.requirements || [],
             tierRewards: data.tierRewards || [
-                { tier: 'champion', minRank: 1, maxRank: 1, points: 500, cash: 0, badge: 'weekly_champion', title: 'Weekly Champion' },
-                { tier: 'gold', minRank: 2, maxRank: 3, points: 200, cash: 0, badge: 'gold' },
-                { tier: 'silver', minRank: 4, maxRank: 10, points: 100, cash: 0, badge: 'silver' },
-                { tier: 'bronze', minRank: 11, maxRank: 50, points: 50, cash: 0, badge: 'bronze' },
+                { tier: 'champion', minRank: 1, maxRank: 1, points: 150, cash: 0, badge: 'weekly_champion', title: 'Weekly Champion' },
+                { tier: 'gold', minRank: 2, maxRank: 3, points: 75, cash: 0, badge: 'gold' },
+                { tier: 'silver', minRank: 4, maxRank: 10, points: 40, cash: 0, badge: 'silver' },
+                { tier: 'bronze', minRank: 11, maxRank: 50, points: 20, cash: 0, badge: 'bronze' },
             ],
             maxParticipants: data.maxParticipants,
             isActive: true,

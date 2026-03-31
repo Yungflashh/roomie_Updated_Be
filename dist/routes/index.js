@@ -99,6 +99,8 @@ router.use('/premium', premium_routes_1.default);
 router.use('/ai', ai_routes_1.default);
 router.use('/clans', clan_routes_1.default);
 router.use('/cosmetics', cosmetic_routes_1.default);
+const activity_routes_1 = __importDefault(require("./activity.routes"));
+router.use('/activity', activity_routes_1.default);
 // router.use('/challenges', weeklyChallengeRoutes);
 // Paystack webhook (no auth — verified by signature)
 router.post('/paystack/webhook', async (req, res) => {

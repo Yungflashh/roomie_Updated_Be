@@ -23,6 +23,10 @@ declare class MatchController {
      */
     likeUser(req: AuthRequest, res: Response): Promise<void>;
     /**
+     * Send a match request (visible, costs more points)
+     */
+    sendMatchRequest(req: AuthRequest, res: Response): Promise<void>;
+    /**
      * Pass a user
      */
     passUser(req: AuthRequest, res: Response): Promise<void>;

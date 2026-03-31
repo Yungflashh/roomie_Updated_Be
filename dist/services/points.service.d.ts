@@ -10,7 +10,7 @@ interface AddPointsOptions {
 interface DeductPointsOptions {
     userId: string;
     amount: number;
-    type: 'spent' | 'penalty' | 'game_entry' | 'match_request';
+    type: 'spent' | 'penalty' | 'game_entry' | 'match_request' | 'like';
     reason: string;
     metadata?: Record<string, any>;
 }
@@ -108,6 +108,22 @@ declare class PointsService {
         referralCode: string;
         referralCount: number;
         totalEarnedFromReferrals: number;
+    }>;
+    /**
+     * Decay points for users inactive for 90+ days.
+     * Call this from a cron job (e.g. daily).
+     * Loses a percentage of balance, never goes below 0.
+     */
+    decayInactivePoints(): Promise<{
+        processed: number;
+        decayed: number;
+    }>;
+    /**
+     * Get today's earned total for a user (for cap display on frontend).
+     */
+    getDailyEarned(userId: string): Promise<{
+        earned: number;
+        cap: number;
     }>;
 }
 declare const _default: PointsService;

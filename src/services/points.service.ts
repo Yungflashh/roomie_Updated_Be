@@ -25,7 +25,7 @@ interface AddPointsOptions {
 interface DeductPointsOptions {
   userId: string;
   amount: number;
-  type: 'spent' | 'penalty' | 'game_entry' | 'match_request';
+  type: 'spent' | 'penalty' | 'game_entry' | 'match_request' | 'like';
   reason: string;
   metadata?: Record<string, any>;
 }
@@ -118,10 +118,11 @@ class PointsService {
         throw new Error('User not found');
       }
 
-      // Apply clan perk bonus to personal points (for earned/game_reward/achievement types)
       let finalAmount = amount;
+
+      // Apply clan perk bonus to personal points (for earned/game_reward/achievement types)
       const boostableTypes = ['earned', 'game_reward', 'achievement', 'daily_login', 'bonus'];
-      if (boostableTypes.includes(type) && amount > 0) {
+      if (boostableTypes.includes(type) && finalAmount > 0) {
         try {
           const { Clan } = await import('../models/Clan');
           const clan = await Clan.findOne({ 'members.user': userId }).select('level purchasedUpgrades').lean();
@@ -129,8 +130,8 @@ class PointsService {
             const clanService = (await import('./clan.service')).default;
             const boostPct = await clanService.getActiveBoostMultiplier(clan._id.toString());
             if (boostPct > 0) {
-              const bonus = Math.round(amount * boostPct);
-              finalAmount = amount + bonus;
+              const bonus = Math.round(finalAmount * boostPct);
+              finalAmount = finalAmount + bonus;
               logger.info(`Clan boost: +${Math.round(boostPct * 100)}% (+${bonus}) for user ${userId}`);
             }
           }
@@ -185,7 +186,7 @@ class PointsService {
 
       // Award level up bonus if leveled up
       if (leveledUp) {
-        const levelUpBonus = Math.floor(newLevel * 10); // 10 points per new level
+        const levelUpBonus = Math.floor(newLevel * 3); // 3 points per new level
         await this.addPoints({
           userId,
           amount: levelUpBonus,
@@ -387,7 +388,7 @@ class PointsService {
         const { Clan } = await import('../models/Clan');
         const clan = await Clan.findOne({ 'members.user': userId }).select('level tag');
         if (clan) {
-          clanBonus = 5 + Math.min(clan.level, 10) * 2; // 7 at level 1, up to 25 at level 10
+          clanBonus = 1 + Math.min(clan.level, 10); // 2 at level 1, up to 11 at level 10
           await this.addPoints({
             userId,
             amount: clanBonus,
@@ -397,7 +398,7 @@ class PointsService {
           });
           // Also track for clan
           const clanService = (await import('./clan.service')).default;
-          await clanService.trackMemberActivity(userId, 'daily_login', 5);
+          await clanService.trackMemberActivity(userId, 'daily_login', 2);
         }
       } catch (e) {
         // Best-effort
@@ -626,6 +627,61 @@ class PointsService {
       referralCount: user.referralCount || 0,
       totalEarnedFromReferrals: referralTransactions[0]?.total || 0,
     };
+  }
+
+  /**
+   * Decay points for users inactive for 90+ days.
+   * Call this from a cron job (e.g. daily).
+   * Loses a percentage of balance, never goes below 0.
+   */
+  async decayInactivePoints(): Promise<{ processed: number; decayed: number }> {
+    try {
+      const config = await this.getConfig();
+      const decayDays = (config as any).pointDecayDays || 90;
+      const decayPercent = (config as any).pointDecayPercent || 10;
+
+      const cutoff = new Date(Date.now() - decayDays * 24 * 60 * 60 * 1000);
+
+      // Find users with points > 0 who haven't been active in decayDays
+      const inactiveUsers = await User.find({
+        'gamification.points': { $gt: 0 },
+        lastSeen: { $lt: cutoff },
+      }).select('_id gamification.points lastSeen');
+
+      let decayed = 0;
+      for (const u of inactiveUsers) {
+        const loss = Math.max(1, Math.floor(u.gamification.points * (decayPercent / 100)));
+        await this.deductPoints({
+          userId: u._id.toString(),
+          amount: loss,
+          type: 'spent',
+          reason: `Point decay — inactive for ${decayDays}+ days (${decayPercent}% penalty)`,
+        });
+        decayed++;
+        logger.info(`Point decay: user ${u._id} lost ${loss} pts (inactive since ${u.lastSeen})`);
+      }
+
+      return { processed: inactiveUsers.length, decayed };
+    } catch (error) {
+      logger.error('Point decay error:', error);
+      return { processed: 0, decayed: 0 };
+    }
+  }
+
+  /**
+   * Get today's earned total for a user (for cap display on frontend).
+   */
+  async getDailyEarned(userId: string): Promise<{ earned: number; cap: number }> {
+    const config = await this.getConfig();
+    const cap = (config as any).dailyFreeEarningCap || 100;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const uncappedTypes = ['purchase', 'refund', 'level_up', 'spent', 'admin', 'gift_received'];
+    const result = await PointTransaction.aggregate([
+      { $match: { user: new (await import('mongoose')).Types.ObjectId(userId), createdAt: { $gte: todayStart }, amount: { $gt: 0 }, type: { $nin: uncappedTypes } } },
+      { $group: { _id: null, total: { $sum: '$amount' } } },
+    ]);
+    return { earned: result[0]?.total || 0, cap };
   }
 }
 

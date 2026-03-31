@@ -50,6 +50,12 @@ router.get('/likes/sent', match_controller_1.default.getSentLikes);
  */
 router.post('/like/:targetUserId', verification_middleware_1.requireVerification, (0, validation_middleware_1.validate)(schemas_1.likeUserValidation), match_controller_1.default.likeUser);
 /**
+ * @route   POST /api/v1/matches/request/:targetUserId
+ * @desc    Send a match request (visible to recipient, costs more)
+ * @access  Private
+ */
+router.post('/request/:targetUserId', verification_middleware_1.requireVerification, (0, validation_middleware_1.validate)(schemas_1.likeUserValidation), match_controller_1.default.sendMatchRequest);
+/**
  * @route   POST /api/v1/matches/pass/:targetUserId
  * @desc    Pass a user (swipe left)
  * @access  Private

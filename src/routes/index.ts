@@ -68,6 +68,8 @@ router.use('/premium', premiumRoutes);
 router.use('/ai', aiRoutes);
 router.use('/clans', clanRoutes);
 router.use('/cosmetics', cosmeticRoutes);
+import activityRoutes from './activity.routes';
+router.use('/activity', activityRoutes);
 // router.use('/challenges', weeklyChallengeRoutes);
 
 

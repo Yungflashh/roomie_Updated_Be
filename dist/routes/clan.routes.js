@@ -151,8 +151,8 @@ router.put('/:clanId', async (req, res) => {
             res.status(401).json({ success: false, message: 'Unauthorized' });
             return;
         }
-        const { name, description, emoji, color, isOpen } = req.body;
-        const clan = await clan_service_1.default.updateClan(userId, req.params.clanId, { name, description, emoji, color, isOpen });
+        const { name, description, emoji, color, isOpen, banner, settings } = req.body;
+        const clan = await clan_service_1.default.updateClan(userId, req.params.clanId, { name, description, emoji, color, isOpen, banner, settings });
         res.json({ success: true, data: clan });
     }
     catch (error) {
@@ -219,7 +219,8 @@ router.post('/join-by-code', async (req, res) => {
             return;
         }
         const clan = await clan_service_1.default.joinByInviteCode(userId, inviteCode);
-        res.json({ success: true, data: clan });
+        const isPending = clan.pendingMembers?.some(p => p.user.toString() === userId);
+        res.json({ success: true, data: clan, pending: !!isPending });
     }
     catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to join clan';
@@ -287,8 +288,9 @@ router.post('/:clanId/promote', async (req, res) => {
             res.status(400).json({ success: false, message: 'targetUserId and role are required' });
             return;
         }
-        if (role !== 'co-leader' && role !== 'member') {
-            res.status(400).json({ success: false, message: 'Role must be co-leader or member' });
+        const validRoles = ['co-leader', 'elder', 'officer', 'member'];
+        if (!validRoles.includes(role)) {
+            res.status(400).json({ success: false, message: `Role must be one of: ${validRoles.join(', ')}` });
             return;
         }
         const clan = await clan_service_1.default.promoteMember(userId, req.params.clanId, targetUserId, role);
@@ -298,6 +300,115 @@ router.post('/:clanId/promote', async (req, res) => {
         const message = error instanceof Error ? error.message : 'Failed to promote member';
         const status = message.includes('Only') ? 403 : 500;
         res.status(status).json({ success: false, message });
+    }
+});
+// ─── Transfer Leadership ──────────────────────────────────────────────────
+router.post('/:clanId/transfer-leadership', async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            res.status(401).json({ success: false, message: 'Unauthorized' });
+            return;
+        }
+        const { targetUserId } = req.body;
+        if (!targetUserId) {
+            res.status(400).json({ success: false, message: 'targetUserId is required' });
+            return;
+        }
+        const clan = await clan_service_1.default.transferLeadership(userId, req.params.clanId, targetUserId);
+        res.json({ success: true, data: clan });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to transfer leadership';
+        const status = message.includes('Only') || message.includes('already') ? 403 : 500;
+        res.status(status).json({ success: false, message });
+    }
+});
+// ─── Claim Leadership ─────────────────────────────────────────────────────
+router.post('/:clanId/claim-leadership', async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            res.status(401).json({ success: false, message: 'Unauthorized' });
+            return;
+        }
+        const clan = await clan_service_1.default.claimLeadership(userId, req.params.clanId);
+        res.json({ success: true, data: clan });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to claim leadership';
+        const status = message.includes('Only') || message.includes('enough') || message.includes('active') ? 400 : 500;
+        res.status(status).json({ success: false, message });
+    }
+});
+// ─── Auto-kick Inactive ──────────────────────────────────────────────────
+router.post('/:clanId/auto-kick', async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            res.status(401).json({ success: false, message: 'Unauthorized' });
+            return;
+        }
+        // Only leader can trigger
+        const { Clan: ClanModel } = await Promise.resolve().then(() => __importStar(require('../models/Clan')));
+        const clan = await ClanModel.findById(req.params.clanId);
+        if (!clan || clan.leader.toString() !== userId) {
+            res.status(403).json({ success: false, message: 'Only the clan leader can trigger auto-kick' });
+            return;
+        }
+        const result = await clan_service_1.default.autoKickInactive(req.params.clanId);
+        res.json({ success: true, data: result });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to auto-kick';
+        res.status(500).json({ success: false, message });
+    }
+});
+// ─── Pending Members ──────────────────────────────────────────────────────
+router.get('/:clanId/pending', async (req, res) => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            res.status(401).json({ success: false, message: 'Unauthorized' });
+            return;
+        }
+        const pending = await clan_service_1.default.getPendingMembers(req.params.clanId, userId);
+        res.set('Cache-Control', 'no-store');
+        res.json({ success: true, data: pending });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to get pending members';
+        res.status(message.includes('need') ? 403 : 500).json({ success: false, message });
+    }
+});
+router.post('/:clanId/pending/:userId/accept', async (req, res) => {
+    try {
+        const actorId = req.user?.userId;
+        if (!actorId) {
+            res.status(401).json({ success: false, message: 'Unauthorized' });
+            return;
+        }
+        const clan = await clan_service_1.default.acceptPendingMember(req.params.clanId, actorId, req.params.userId);
+        res.json({ success: true, data: clan });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to accept member';
+        res.status(message.includes('need') || message.includes('full') ? 400 : 500).json({ success: false, message });
+    }
+});
+router.post('/:clanId/pending/:userId/reject', async (req, res) => {
+    try {
+        const actorId = req.user?.userId;
+        if (!actorId) {
+            res.status(401).json({ success: false, message: 'Unauthorized' });
+            return;
+        }
+        const clan = await clan_service_1.default.rejectPendingMember(req.params.clanId, actorId, req.params.userId);
+        res.json({ success: true, data: clan });
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to reject member';
+        res.status(500).json({ success: false, message });
     }
 });
 // ─── Achievements ─────────────────────────────────────────────────────────
@@ -384,11 +495,20 @@ router.post('/:clanId/announcement/send', async (req, res) => {
             res.status(404).json({ success: false, message: 'Clan not found' });
             return;
         }
+        const { RANK_WEIGHTS } = await Promise.resolve().then(() => __importStar(require('../models/Clan')));
         const member = clan.members.find(m => m.user.toString() === userId);
-        if (!member || (member.role !== 'leader' && member.role !== 'co-leader')) {
-            res.status(403).json({ success: false, message: 'Only leaders and co-leaders can send announcements' });
+        if (!member || (RANK_WEIGHTS[member.role] || 0) < 4) {
+            res.status(403).json({ success: false, message: 'You need Co-Leader rank or higher to send announcements' });
             return;
         }
+        // Sending announcements costs treasury
+        const ANNOUNCEMENT_COST = 50;
+        if (clan.treasury < ANNOUNCEMENT_COST) {
+            res.status(400).json({ success: false, message: `Sending announcements costs ${ANNOUNCEMENT_COST} treasury points. Current balance: ${clan.treasury}.` });
+            return;
+        }
+        clan.treasury -= ANNOUNCEMENT_COST;
+        await clan.save();
         const notificationService = (await Promise.resolve().then(() => __importStar(require('../services/notification.service')))).default;
         const targets = memberIds && Array.isArray(memberIds) && memberIds.length > 0
             ? clan.members.filter(m => memberIds.includes(m.user.toString()))
@@ -407,8 +527,8 @@ router.post('/:clanId/announcement/send', async (req, res) => {
             }
             catch { }
         }
-        await clan_service_1.default.logActivity(clan._id.toString(), 'announcement', userId, `sent announcement to ${sent} members`);
-        res.json({ success: true, data: { sent, total: targets.length } });
+        await clan_service_1.default.logActivity(clan._id.toString(), 'treasury_spent', userId, `spent ${ANNOUNCEMENT_COST} treasury to send announcement to ${sent} members`);
+        res.json({ success: true, data: { sent, total: targets.length, treasuryCost: ANNOUNCEMENT_COST, newBalance: clan.treasury } });
     }
     catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to send announcement';
@@ -604,6 +724,18 @@ router.post('/:clanId/wars', async (req, res) => {
         const userId = req.user?.userId;
         if (!userId) {
             res.status(401).json({ success: false, message: 'Unauthorized' });
+            return;
+        }
+        // Only leader or co-leader can start wars
+        const { Clan: ClanModel, RANK_WEIGHTS } = await Promise.resolve().then(() => __importStar(require('../models/Clan')));
+        const clan = await ClanModel.findById(req.params.clanId);
+        if (!clan) {
+            res.status(404).json({ success: false, message: 'Clan not found' });
+            return;
+        }
+        const member = clan.members.find((m) => m.user.toString() === userId);
+        if (!member || (RANK_WEIGHTS[member.role] || 0) < 4) {
+            res.status(403).json({ success: false, message: 'Only leaders and co-leaders can start wars.' });
             return;
         }
         const { defenderClanId, warType = 'games', pointsStake = 100 } = req.body;

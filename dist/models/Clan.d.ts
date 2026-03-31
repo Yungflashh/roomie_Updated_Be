@@ -1,10 +1,17 @@
 import mongoose, { Document } from 'mongoose';
+export type ClanRole = 'leader' | 'co-leader' | 'elder' | 'officer' | 'member';
+export declare const RANK_WEIGHTS: Record<ClanRole, number>;
 export interface IClanMember {
     user: mongoose.Types.ObjectId;
-    role: 'leader' | 'co-leader' | 'member';
+    role: ClanRole;
     joinedAt: Date;
     pointsContributed: number;
     weeklyContribution?: number;
+}
+export interface IClanPendingMember {
+    user: mongoose.Types.ObjectId;
+    requestedAt: Date;
+    message?: string;
 }
 export interface IClanActivityLog {
     type: string;
@@ -45,6 +52,8 @@ export interface IClanDocument extends Document {
     badges: string[];
     activityLog: IClanActivityLog[];
     treasury: number;
+    pendingMembers: IClanPendingMember[];
+    banner: string;
     streak: IClanStreak;
     chatMatchId: string;
     activePerks: string[];
@@ -54,6 +63,11 @@ export interface IClanDocument extends Document {
     season: {
         number: number;
         points: number;
+    };
+    settings: {
+        minLevel: number;
+        requireVerification: boolean;
+        autoKickDays: number;
     };
     createdAt: Date;
     updatedAt: Date;

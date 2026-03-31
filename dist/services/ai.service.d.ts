@@ -4,6 +4,8 @@ interface ChatMessage {
     content: string;
 }
 declare class AIService {
+    private getRecommendedUsers;
+    private getAvailableListings;
     chat(messages: ChatMessage[], userId: string): Promise<string>;
     getChats(userId: string): Promise<IAIChatDocument[]>;
     getChat(chatId: string, userId: string): Promise<IAIChatDocument | null>;

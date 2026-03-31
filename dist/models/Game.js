@@ -71,12 +71,12 @@ const gameSchema = new mongoose_1.Schema({
     },
     pointsReward: {
         type: Number,
-        default: 10,
+        default: 5,
         min: 0,
     },
     pointsCost: {
         type: Number,
-        default: 5,
+        default: 3,
         min: 0,
         required: true,
     },

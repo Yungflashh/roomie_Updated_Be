@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -17,13 +50,7 @@ class NotificationService {
         // Emit real-time notification via WebSocket
         try {
             (0, socket_config_1.emitNotification)(data.user, notification.toObject());
-            // Emit updated unread counts
-            const unreadCount = await this.getUnreadCount(data.user);
-            (0, socket_config_1.emitUnreadUpdate)(data.user, {
-                messages: 0,
-                notifications: unreadCount,
-                requests: 0,
-            });
+            await this.emitFullUnreadCounts(data.user);
         }
         catch (socketError) {
             logger_1.default.warn('Socket emit failed (user may be offline):', socketError);
@@ -64,34 +91,14 @@ class NotificationService {
      */
     async markAsRead(notificationId, userId) {
         await models_1.Notification.findOneAndUpdate({ _id: notificationId, user: userId }, { read: true, readAt: new Date() });
-        // Emit updated unread count
-        try {
-            const unreadCount = await this.getUnreadCount(userId);
-            (0, socket_config_1.emitUnreadUpdate)(userId, {
-                messages: 0,
-                notifications: unreadCount,
-                requests: 0,
-            });
-        }
-        catch (socketError) {
-            logger_1.default.warn('Socket emit failed:', socketError);
-        }
+        await this.emitFullUnreadCounts(userId);
     }
     /**
      * Mark all notifications as read
      */
     async markAllAsRead(userId) {
         await models_1.Notification.updateMany({ user: userId, read: false }, { read: true, readAt: new Date() });
-        try {
-            (0, socket_config_1.emitUnreadUpdate)(userId, {
-                messages: 0,
-                notifications: 0,
-                requests: 0,
-            });
-        }
-        catch (socketError) {
-            logger_1.default.warn('Socket emit failed:', socketError);
-        }
+        await this.emitFullUnreadCounts(userId);
     }
     /**
      * Delete a notification
@@ -110,6 +117,44 @@ class NotificationService {
      */
     async getUnreadCount(userId) {
         return models_1.Notification.countDocuments({ user: userId, read: false });
+    }
+    /**
+     * Get unread match request count
+     */
+    async getUnreadRequestCount(userId) {
+        return models_1.Notification.countDocuments({ user: userId, read: false, type: { $in: ['request', 'like'] } });
+    }
+    /**
+     * Count pending match requests (users who liked this user but aren't matched yet)
+     */
+    async getPendingRequestCount(userId) {
+        try {
+            const matchService = (await Promise.resolve().then(() => __importStar(require('./match.service')))).default;
+            const likes = await matchService.getLikes(userId);
+            return likes?.length || 0;
+        }
+        catch {
+            return 0;
+        }
+    }
+    /**
+     * Build and emit full unread counts for a user
+     */
+    async emitFullUnreadCounts(userId) {
+        try {
+            const [notifications, requests] = await Promise.all([
+                this.getUnreadCount(userId),
+                this.getPendingRequestCount(userId),
+            ]);
+            (0, socket_config_1.emitUnreadUpdate)(userId, {
+                messages: 0,
+                notifications,
+                requests,
+            });
+        }
+        catch (e) {
+            logger_1.default.warn('emitFullUnreadCounts failed:', e);
+        }
     }
     // =====================
     // NOTIFICATION CREATORS
