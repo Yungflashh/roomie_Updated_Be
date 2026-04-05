@@ -3,60 +3,12 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
-import rateLimit from 'express-rate-limit';
-import { RedisStore } from 'rate-limit-redis';
 import path from 'path';
 import routes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import logger from './utils/logger';
-import { redisClient } from './config/redis';
+import { generalLimiter } from './middleware/rateLimiter';
 
-// Redis store factory — shares rate limit state across all server instances
-const createRedisStore = (prefix: string) => new RedisStore({
-  sendCommand: (...args: string[]) => (redisClient as any).call(...args),
-  prefix: `rl:${prefix}:`,
-});
-
-// Create rate limiters
-// 1. General API rate limiter - permissive for regular use
-export const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100000'), // default high for load testing; override in production
-  message: 'Too many requests from this IP, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-  store: createRedisStore('general'),
-  skip: (req) => {
-    // Skip rate limiting for real-time/high-frequency endpoints
-    const skipPaths = [
-      '/api/v1/messages',
-      '/api/v1/notifications',
-      '/api/v1/matches/check',
-    ];
-    return skipPaths.some(path => req.path.startsWith(path));
-  }
-});
-
-// 2. Strict rate limiter for authentication endpoints
-export const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Only 10 attempts per 15 minutes
-  message: 'Too many authentication attempts, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-  store: createRedisStore('auth'),
-  skipSuccessfulRequests: true, // Don't count successful logins
-});
-
-// 3. Moderate limiter for resource-intensive operations
-export const uploadLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50, // 50 uploads per 15 minutes
-  message: 'Too many upload requests, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-  store: createRedisStore('upload'),
-});
 
 const createApp = (): Application => {
   const app = express();

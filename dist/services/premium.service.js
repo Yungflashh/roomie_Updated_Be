@@ -254,7 +254,9 @@ class PremiumService {
             throw new Error('User not found');
         if (!this.isPremium(user))
             throw new Error('Premium subscription required');
-        const visitors = user.metadata?.profileVisitors || [];
+        const allVisitors = user.metadata?.profileVisitors || [];
+        const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+        const visitors = allVisitors.filter((v) => new Date(v.visitedAt) >= oneWeekAgo);
         const visitorIds = visitors.map((v) => v.userId);
         const users = await models_1.User.find({ _id: { $in: visitorIds } })
             .select('firstName lastName profilePhoto verified subscription')

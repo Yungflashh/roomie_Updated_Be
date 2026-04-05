@@ -10,7 +10,7 @@ declare class StudyBuddyService {
     /**
      * Find study buddies based on category and user occupation matching
      */
-    findStudyBuddies(userId: string, category: string): Promise<(import("../models/User").IUserDocument & Required<{
+    findStudyBuddies(userId: string, category: string): Promise<(import("../models").IUserDocument & Required<{
         _id: import("mongoose").Types.ObjectId;
     }> & {
         __v: number;
@@ -18,7 +18,7 @@ declare class StudyBuddyService {
     /**
      * Create a solo study session
      */
-    createSoloSession(userId: string, category: string, questionCount?: number): Promise<import("mongoose").Document<unknown, {}, import("../models/StudyBuddy").IStudySessionDocument, {}, import("mongoose").DefaultSchemaOptions> & import("../models/StudyBuddy").IStudySessionDocument & Required<{
+    createSoloSession(userId: string, category: string, questionCount?: number): Promise<import("mongoose").Document<unknown, {}, import("../models").IStudySessionDocument, {}, import("mongoose").DefaultSchemaOptions> & import("../models").IStudySessionDocument & Required<{
         _id: import("mongoose").Types.ObjectId;
     }> & {
         __v: number;
@@ -26,7 +26,7 @@ declare class StudyBuddyService {
     /**
      * Create a challenge session against another user
      */
-    createChallengeSession(userId: string, opponentId: string, category: string, questionCount?: number): Promise<import("mongoose").Document<unknown, {}, import("../models/StudyBuddy").IStudySessionDocument, {}, import("mongoose").DefaultSchemaOptions> & import("../models/StudyBuddy").IStudySessionDocument & Required<{
+    createChallengeSession(userId: string, opponentId: string, category: string, questionCount?: number): Promise<import("mongoose").Document<unknown, {}, import("../models").IStudySessionDocument, {}, import("mongoose").DefaultSchemaOptions> & import("../models").IStudySessionDocument & Required<{
         _id: import("mongoose").Types.ObjectId;
     }> & {
         __v: number;
@@ -34,7 +34,7 @@ declare class StudyBuddyService {
     /**
      * Respond to a challenge invitation
      */
-    respondToChallenge(sessionId: string, userId: string, accept: boolean): Promise<import("mongoose").Document<unknown, {}, import("../models/StudyBuddy").IStudySessionDocument, {}, import("mongoose").DefaultSchemaOptions> & import("../models/StudyBuddy").IStudySessionDocument & Required<{
+    respondToChallenge(sessionId: string, userId: string, accept: boolean): Promise<import("mongoose").Document<unknown, {}, import("../models").IStudySessionDocument, {}, import("mongoose").DefaultSchemaOptions> & import("../models").IStudySessionDocument & Required<{
         _id: import("mongoose").Types.ObjectId;
     }> & {
         __v: number;
@@ -46,7 +46,7 @@ declare class StudyBuddyService {
         questionIndex: number;
         answer: string;
         timeSpent: number;
-    }>): Promise<import("mongoose").Document<unknown, {}, import("../models/StudyBuddy").IStudySessionDocument, {}, import("mongoose").DefaultSchemaOptions> & import("../models/StudyBuddy").IStudySessionDocument & Required<{
+    }>): Promise<import("mongoose").Document<unknown, {}, import("../models").IStudySessionDocument, {}, import("mongoose").DefaultSchemaOptions> & import("../models").IStudySessionDocument & Required<{
         _id: import("mongoose").Types.ObjectId;
     }> & {
         __v: number;
@@ -54,7 +54,7 @@ declare class StudyBuddyService {
     /**
      * Get a session by ID with populated fields
      */
-    getSession(sessionId: string): Promise<import("mongoose").Document<unknown, {}, import("../models/StudyBuddy").IStudySessionDocument, {}, import("mongoose").DefaultSchemaOptions> & import("../models/StudyBuddy").IStudySessionDocument & Required<{
+    getSession(sessionId: string): Promise<import("mongoose").Document<unknown, {}, import("../models").IStudySessionDocument, {}, import("mongoose").DefaultSchemaOptions> & import("../models").IStudySessionDocument & Required<{
         _id: import("mongoose").Types.ObjectId;
     }> & {
         __v: number;
@@ -63,7 +63,7 @@ declare class StudyBuddyService {
      * Get user's session history
      */
     getUserHistory(userId: string, page?: number, limit?: number): Promise<{
-        sessions: (import("../models/StudyBuddy").IStudySessionDocument & Required<{
+        sessions: (import("../models").IStudySessionDocument & Required<{
             _id: import("mongoose").Types.ObjectId;
         }> & {
             __v: number;

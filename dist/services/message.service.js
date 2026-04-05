@@ -259,7 +259,7 @@ class MessageService {
         const messages = await models_1.Message.find({
             match: matchId,
             type: 'text',
-            content: { $regex: query, $options: 'i' },
+            content: { $regex: query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' },
             deleted: false,
         })
             .sort({ createdAt: -1 })

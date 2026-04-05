@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -481,19 +514,37 @@ class StudyBuddyService {
             if (!questions.length) {
                 throw new Error('No questions available for this category');
             }
+            // Expire in 7 days — async, play whenever
             const expiresAt = new Date();
-            expiresAt.setMinutes(expiresAt.getMinutes() + 5);
+            expiresAt.setDate(expiresAt.getDate() + 7);
             const session = await StudyBuddy_1.StudySession.create({
                 creator: userId,
                 opponent: opponentId,
                 category,
                 mode: 'challenge',
-                status: 'pending',
+                status: 'active', // Start active immediately — no waiting for accept
+                startedAt: new Date(),
                 questions,
                 totalQuestions: 10,
                 timeLimit: 30,
                 expiresAt,
             });
+            // Notify the opponent
+            try {
+                const { User } = await Promise.resolve().then(() => __importStar(require('../models')));
+                const creator = await User.findById(userId).select('firstName');
+                const notifService = (await Promise.resolve().then(() => __importStar(require('./notification.service')))).default;
+                await notifService.createNotification({
+                    user: opponentId,
+                    type: 'system',
+                    title: 'Study Challenge!',
+                    body: `${creator?.firstName || 'Someone'} challenged you in ${category}! Open Study Buddy to play.`,
+                    data: { type: 'study_challenge', sessionId: session._id.toString(), category },
+                });
+            }
+            catch (e) {
+                logger_1.default.warn('Study challenge notification error:', e);
+            }
             return session;
         }
         catch (error) {
@@ -545,8 +596,14 @@ class StudyBuddyService {
             if (!session) {
                 throw new Error('Session not found');
             }
-            if (session.status !== 'active') {
+            if (session.status !== 'active' && session.status !== 'pending') {
                 throw new Error('Session is not active');
+            }
+            // Auto-activate pending sessions
+            if (session.status === 'pending') {
+                session.status = 'active';
+                if (!session.startedAt)
+                    session.startedAt = new Date();
             }
             const isCreator = session.creator.toString() === userId;
             const isOpponent = session.opponent?.toString() === userId;
@@ -636,6 +693,63 @@ class StudyBuddyService {
                     catch (e) {
                         logger_1.default.warn('Failed to award challenge points:', e);
                     }
+                    // Track competition points for study buddy
+                    try {
+                        const { Clan: ClanModel } = await Promise.resolve().then(() => __importStar(require('../models/Clan')));
+                        if (winnerId) {
+                            const winnerClan = await ClanModel.findOne({ 'members.user': winnerId }).select('_id');
+                            if (winnerClan) {
+                                const compService = (await Promise.resolve().then(() => __importStar(require('./clanCompetition.service')))).default;
+                                await compService.recordCompetitionPoints(winnerId, winnerClan._id.toString(), session.creatorScore || 10, 'study');
+                            }
+                        }
+                    }
+                    catch (e) {
+                        logger_1.default.warn('Competition study tracking error:', e);
+                    }
+                    // Notify both players of results
+                    try {
+                        const { User } = await Promise.resolve().then(() => __importStar(require('../models')));
+                        const notifService = (await Promise.resolve().then(() => __importStar(require('./notification.service')))).default;
+                        const creatorUser = await User.findById(session.creator).select('firstName');
+                        const opponentUser = await User.findById(session.opponent).select('firstName');
+                        const resultMsg = winnerId
+                            ? `${winnerId === session.creator.toString() ? creatorUser?.firstName : opponentUser?.firstName} won!`
+                            : "It's a tie!";
+                        for (const uid of [session.creator.toString(), session.opponent?.toString()].filter(Boolean)) {
+                            await notifService.createNotification({
+                                user: uid,
+                                type: 'system',
+                                title: `Study Challenge Complete!`,
+                                body: `${session.category} challenge between ${creatorUser?.firstName} & ${opponentUser?.firstName} — ${resultMsg} (${session.creatorScore} vs ${session.opponentScore})`,
+                                data: { type: 'study_result', sessionId: session._id.toString() },
+                            });
+                        }
+                    }
+                    catch (e) {
+                        logger_1.default.warn('Study result notification error:', e);
+                    }
+                }
+            }
+            else {
+                // One player done, notify the other
+                try {
+                    const { User } = await Promise.resolve().then(() => __importStar(require('../models')));
+                    const notifService = (await Promise.resolve().then(() => __importStar(require('./notification.service')))).default;
+                    const doneUser = await User.findById(userId).select('firstName');
+                    const otherUserId = isCreator ? session.opponent?.toString() : session.creator.toString();
+                    if (otherUserId) {
+                        await notifService.createNotification({
+                            user: otherUserId,
+                            type: 'system',
+                            title: 'Your turn!',
+                            body: `${doneUser?.firstName || 'Your opponent'} finished the ${session.category} challenge. Play now to see who wins!`,
+                            data: { type: 'study_challenge', sessionId: session._id.toString(), category: session.category },
+                        });
+                    }
+                }
+                catch (e) {
+                    logger_1.default.warn('Study turn notification error:', e);
                 }
             }
             await session.save();

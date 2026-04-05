@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -19,6 +52,46 @@ const authenticate = async (req, res, next) => {
         const token = authHeader.substring(7);
         try {
             const decoded = (0, jwt_1.verifyAccessToken)(token);
+            // Check account moderation status (skip for admin tokens)
+            if (!decoded.isAdmin) {
+                const { User } = await Promise.resolve().then(() => __importStar(require('../models')));
+                const user = await User.findById(decoded.userId).select('moderation isActive').lean();
+                if (user) {
+                    const mod = user.moderation;
+                    if (mod?.status === 'restricted') {
+                        res.status(403).json({
+                            success: false,
+                            code: 'ACCOUNT_RESTRICTED',
+                            message: `Your account has been permanently restricted. Reason: ${mod.reason || 'Violation of community guidelines'}. Contact support@roomieng.com for appeals.`,
+                        });
+                        return;
+                    }
+                    if (mod?.status === 'suspended' && mod.suspendedUntil && new Date(mod.suspendedUntil) > new Date()) {
+                        const until = new Date(mod.suspendedUntil).toLocaleDateString('en-NG', { dateStyle: 'medium' });
+                        res.status(403).json({
+                            success: false,
+                            code: 'ACCOUNT_SUSPENDED',
+                            message: `Your account is suspended until ${until}. Reason: ${mod.reason || 'Violation of community guidelines'}.`,
+                        });
+                        return;
+                    }
+                    if (mod?.status === 'banned' && mod.suspendedUntil && new Date(mod.suspendedUntil) > new Date()) {
+                        const mins = Math.ceil((new Date(mod.suspendedUntil).getTime() - Date.now()) / 60000);
+                        res.status(403).json({
+                            success: false,
+                            code: 'ACCOUNT_BANNED',
+                            message: `Your account is temporarily banned for ${mins} more minute(s). Reason: ${mod.reason || 'Violation of community guidelines'}.`,
+                        });
+                        return;
+                    }
+                    // Auto-lift expired suspensions/bans
+                    if (mod?.status !== 'active' && mod?.status !== 'restricted') {
+                        if (!mod?.suspendedUntil || new Date(mod.suspendedUntil) <= new Date()) {
+                            await User.findByIdAndUpdate(decoded.userId, { 'moderation.status': 'active' });
+                        }
+                    }
+                }
+            }
             req.user = {
                 userId: decoded.userId,
                 email: decoded.email,

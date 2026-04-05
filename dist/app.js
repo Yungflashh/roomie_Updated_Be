@@ -3,62 +3,16 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.uploadLimiter = exports.authLimiter = exports.generalLimiter = void 0;
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
 const compression_1 = __importDefault(require("compression"));
 const morgan_1 = __importDefault(require("morgan"));
-const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
-const rate_limit_redis_1 = require("rate-limit-redis");
 const path_1 = __importDefault(require("path"));
 const routes_1 = __importDefault(require("./routes"));
 const error_middleware_1 = require("./middleware/error.middleware");
 const logger_1 = __importDefault(require("./utils/logger"));
-const redis_1 = require("./config/redis");
-// Redis store factory — shares rate limit state across all server instances
-const createRedisStore = (prefix) => new rate_limit_redis_1.RedisStore({
-    sendCommand: (...args) => redis_1.redisClient.call(...args),
-    prefix: `rl:${prefix}:`,
-});
-// Create rate limiters
-// 1. General API rate limiter - permissive for regular use
-exports.generalLimiter = (0, express_rate_limit_1.default)({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100000'), // default high for load testing; override in production
-    message: 'Too many requests from this IP, please try again later.',
-    standardHeaders: true,
-    legacyHeaders: false,
-    store: createRedisStore('general'),
-    skip: (req) => {
-        // Skip rate limiting for real-time/high-frequency endpoints
-        const skipPaths = [
-            '/api/v1/messages',
-            '/api/v1/notifications',
-            '/api/v1/matches/check',
-        ];
-        return skipPaths.some(path => req.path.startsWith(path));
-    }
-});
-// 2. Strict rate limiter for authentication endpoints
-exports.authLimiter = (0, express_rate_limit_1.default)({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 10, // Only 10 attempts per 15 minutes
-    message: 'Too many authentication attempts, please try again later.',
-    standardHeaders: true,
-    legacyHeaders: false,
-    store: createRedisStore('auth'),
-    skipSuccessfulRequests: true, // Don't count successful logins
-});
-// 3. Moderate limiter for resource-intensive operations
-exports.uploadLimiter = (0, express_rate_limit_1.default)({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 50, // 50 uploads per 15 minutes
-    message: 'Too many upload requests, please try again later.',
-    standardHeaders: true,
-    legacyHeaders: false,
-    store: createRedisStore('upload'),
-});
+const rateLimiter_1 = require("./middleware/rateLimiter");
 const createApp = () => {
     const app = (0, express_1.default)();
     // Security middleware
@@ -87,7 +41,7 @@ const createApp = () => {
         }));
     }
     // Apply general rate limiting to all API routes
-    app.use('/api/', exports.generalLimiter);
+    app.use('/api/', rateLimiter_1.generalLimiter);
     // Static files
     app.use('/uploads', express_1.default.static(path_1.default.join(process.cwd(), 'public/uploads')));
     // API routes

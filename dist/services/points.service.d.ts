@@ -3,7 +3,7 @@ import { IPointsConfigDocument } from '../models/PointsConfig';
 interface AddPointsOptions {
     userId: string;
     amount: number;
-    type: 'earned' | 'bonus' | 'daily_login' | 'weekly_streak' | 'level_up' | 'verification' | 'game_reward' | 'achievement' | 'refund';
+    type: 'earned' | 'bonus' | 'daily_login' | 'weekly_streak' | 'level_up' | 'verification' | 'game_reward' | 'achievement' | 'refund' | 'purchase' | 'admin' | 'gift_received';
     reason: string;
     metadata?: Record<string, any>;
 }

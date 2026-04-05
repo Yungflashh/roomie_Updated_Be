@@ -326,10 +326,18 @@ class UserService {
    * Report user
    */
   async reportUser(userId: string, targetUserId: string, reason: string): Promise<void> {
-    await User.findByIdAndUpdate(
-      targetUserId,
-      { $addToSet: { reportedBy: userId } }
-    );
+    const { Report } = await import('../models/Report');
+
+    // Check for duplicate report
+    const existing = await Report.findOne({ reporter: userId, reported: targetUserId, status: 'pending' });
+    if (existing) {
+      throw new Error('You have already reported this user.');
+    }
+
+    await Report.create({ reporter: userId, reported: targetUserId, reason });
+
+    // Also track on user document
+    await User.findByIdAndUpdate(targetUserId, { $addToSet: { reportedBy: userId } });
 
     logger.warn(`User ${userId} reported user ${targetUserId}: ${reason}`);
   }

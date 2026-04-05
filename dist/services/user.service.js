@@ -259,6 +259,14 @@ class UserService {
      * Report user
      */
     async reportUser(userId, targetUserId, reason) {
+        const { Report } = await Promise.resolve().then(() => __importStar(require('../models/Report')));
+        // Check for duplicate report
+        const existing = await Report.findOne({ reporter: userId, reported: targetUserId, status: 'pending' });
+        if (existing) {
+            throw new Error('You have already reported this user.');
+        }
+        await Report.create({ reporter: userId, reported: targetUserId, reason });
+        // Also track on user document
         await models_1.User.findByIdAndUpdate(targetUserId, { $addToSet: { reportedBy: userId } });
         logger_1.default.warn(`User ${userId} reported user ${targetUserId}: ${reason}`);
     }

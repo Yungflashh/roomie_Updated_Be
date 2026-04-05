@@ -6,6 +6,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const axios_1 = __importDefault(require("axios"));
 const logger_1 = __importDefault(require("../utils/logger"));
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || '';
+if (!PAYSTACK_SECRET) {
+    console.warn('⚠️  WARNING: PAYSTACK_SECRET_KEY is not set. Payment features will not work.');
+}
 const PAYSTACK_BASE = 'https://api.paystack.co';
 const paystackApi = axios_1.default.create({
     baseURL: PAYSTACK_BASE,
@@ -71,6 +74,10 @@ class PaystackService {
     validateWebhook(body, signature) {
         const crypto = require('crypto');
         const secret = process.env.PAYSTACK_WEBHOOK_SECRET || PAYSTACK_SECRET;
+        if (!secret) {
+            console.error('FATAL: No Paystack webhook secret configured. Rejecting all webhooks.');
+            return false;
+        }
         const hash = crypto.createHmac('sha512', secret).update(body).digest('hex');
         return hash === signature;
     }

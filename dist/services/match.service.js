@@ -309,7 +309,7 @@ class MatchService {
         if (isMutualMatch) {
             return this._createMatch(userId, targetUserId, currentUser, targetUser, LIKE_COST);
         }
-        // Not mutual — anonymous notification
+        // Notify the liked user (anonymous)
         await notification_service_1.default.createNotification({
             user: targetUserId,
             type: 'like',
@@ -317,6 +317,18 @@ class MatchService {
             body: 'Upgrade to Premium to see who likes you.',
             data: { type: 'anonymous_like' },
         });
+        // Confirm to the liker via socket (no persistent notification — just real-time feedback)
+        try {
+            const { emitNotification } = await Promise.resolve().then(() => __importStar(require('../config/socket.config')));
+            emitNotification(userId, {
+                type: 'like',
+                title: `You liked ${targetUser.firstName}'s profile`,
+                body: `${LIKE_COST} points spent`,
+                data: { type: 'like_confirmation', targetUserId },
+                transient: true, // frontend can use this to show a brief toast without storing
+            });
+        }
+        catch { }
         logger_1.default.info(`User ${userId} liked ${targetUserId} (${LIKE_COST} pts)`);
         return { isMatch: false, pointsDeducted: LIKE_COST };
     }

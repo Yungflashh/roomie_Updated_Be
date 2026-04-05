@@ -1384,9 +1384,16 @@ class GameService {
                     try {
                         const clanService = (await Promise.resolve().then(() => __importStar(require('./clan.service')))).default;
                         await clanService.trackMemberActivity(winnerUserId.toString(), 'game_win', 3);
+                        // Track competition points
+                        const { Clan: ClanModel } = await Promise.resolve().then(() => __importStar(require('../models/Clan')));
+                        const winnerClan = await ClanModel.findOne({ 'members.user': winnerUserId }).select('_id');
+                        if (winnerClan) {
+                            const compService = (await Promise.resolve().then(() => __importStar(require('./clanCompetition.service')))).default;
+                            await compService.recordCompetitionPoints(winnerUserId.toString(), winnerClan._id.toString(), winner.score || 10, 'game');
+                        }
                     }
                     catch (e) {
-                        logger_1.default.warn('Clan tracking error:', e);
+                        logger_1.default.warn('Clan/competition tracking error:', e);
                     }
                 }
                 catch (e) {

@@ -271,7 +271,10 @@ class PremiumService {
     if (!user) throw new Error('User not found');
     if (!this.isPremium(user)) throw new Error('Premium subscription required');
 
-    const visitors = (user as any).metadata?.profileVisitors || [];
+    const allVisitors = (user as any).metadata?.profileVisitors || [];
+    const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const visitors = allVisitors.filter((v: any) => new Date(v.visitedAt) >= oneWeekAgo);
+
     const visitorIds = visitors.map((v: any) => v.userId);
 
     const users = await User.find({ _id: { $in: visitorIds } })

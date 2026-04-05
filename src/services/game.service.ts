@@ -1525,7 +1525,14 @@ class GameService {
           try {
             const clanService = (await import('./clan.service')).default;
             await clanService.trackMemberActivity(winnerUserId.toString(), 'game_win', 3);
-          } catch (e) { logger.warn('Clan tracking error:', e); }
+            // Track competition points
+            const { Clan: ClanModel } = await import('../models/Clan');
+            const winnerClan = await ClanModel.findOne({ 'members.user': winnerUserId }).select('_id');
+            if (winnerClan) {
+              const compService = (await import('./clanCompetition.service')).default;
+              await compService.recordCompetitionPoints(winnerUserId.toString(), winnerClan._id.toString(), winner.score || 10, 'game');
+            }
+          } catch (e) { logger.warn('Clan/competition tracking error:', e); }
         } catch (e) {
           logger.warn('Failed to award winner points:', e);
         }

@@ -17,7 +17,10 @@ interface AddPointsOptions {
     | 'verification'
     | 'game_reward'
     | 'achievement'
-    | 'refund';
+    | 'refund'
+    | 'purchase'
+    | 'admin'
+    | 'gift_received';
   reason: string;
   metadata?: Record<string, any>;
 }
@@ -221,36 +224,37 @@ class PointsService {
     const { userId, amount, type, reason, metadata = {} } = options;
 
     try {
-      const user = await User.findById(userId);
-      if (!user) {
-        throw new Error('User not found');
+      // Atomic: only deduct if balance is sufficient, in a single operation
+      const result = await User.findOneAndUpdate(
+        { _id: userId, 'gamification.points': { $gte: amount } },
+        { $inc: { 'gamification.points': -amount } },
+        { new: true }
+      );
+
+      if (!result) {
+        // Check if user exists vs insufficient points
+        const exists = await User.findById(userId).select('gamification.points').lean();
+        if (!exists) throw new Error('User not found');
+        throw new Error(`Insufficient points. You have ${exists.gamification.points}, need ${amount}.`);
       }
 
-      if (user.gamification.points < amount) {
-        throw new Error('Insufficient points');
-      }
-
-      const oldPoints = user.gamification.points;
-      const newPoints = oldPoints - amount;
-
-      user.gamification.points = newPoints;
-      await user.save();
+      const newBalance = result.gamification.points;
 
       // Create transaction record (negative amount)
       const transaction = await PointTransaction.create({
         user: userId,
         type,
         amount: -amount,
-        balance: newPoints,
+        balance: newBalance,
         reason,
         metadata,
       });
 
-      logger.info(`Deducted ${amount} points from user ${userId}. New balance: ${newPoints}`);
+      logger.info(`Deducted ${amount} points from user ${userId}. New balance: ${newBalance}`);
 
       return {
         success: true,
-        newBalance: newPoints,
+        newBalance,
         transaction,
       };
     } catch (error: any) {

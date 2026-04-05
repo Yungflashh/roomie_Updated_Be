@@ -70,7 +70,8 @@ const cosmetic_routes_1 = __importDefault(require("./cosmetic.routes"));
 // import weeklyChallengeRoutes from './weeklyChallenge.routes';
 const router = (0, express_1.Router)();
 // API v1 routes
-router.use('/auth', auth_routes_1.default);
+const rateLimiter_1 = require("../middleware/rateLimiter");
+router.use('/auth', rateLimiter_1.authLimiter, auth_routes_1.default);
 router.use('/users', user_routes_1.default);
 router.use('/matches', match_routes_1.default);
 router.use('/messages', message_routes_1.default);
@@ -101,6 +102,8 @@ router.use('/clans', clan_routes_1.default);
 router.use('/cosmetics', cosmetic_routes_1.default);
 const activity_routes_1 = __importDefault(require("./activity.routes"));
 router.use('/activity', activity_routes_1.default);
+const clanCompetition_routes_1 = __importDefault(require("./clanCompetition.routes"));
+router.use('/clan-competition', clanCompetition_routes_1.default);
 // router.use('/challenges', weeklyChallengeRoutes);
 // Paystack webhook (no auth — verified by signature)
 router.post('/paystack/webhook', async (req, res) => {

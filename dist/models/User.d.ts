@@ -131,6 +131,20 @@ export interface IUserDocument extends Document {
         };
     };
     isActive: boolean;
+    moderation: {
+        status: 'active' | 'suspended' | 'banned' | 'restricted';
+        reason?: string;
+        suspendedUntil?: Date;
+        restrictedAt?: Date;
+        moderatedBy?: string;
+        history: Array<{
+            action: string;
+            reason?: string;
+            duration?: string;
+            by?: string;
+            at: Date;
+        }>;
+    };
     lastSeen?: Date;
     notificationSettings: {
         pushEnabled: boolean;

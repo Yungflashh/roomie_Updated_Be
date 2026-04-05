@@ -138,6 +138,14 @@ export interface IUserDocument extends Document {
     };
   };
   isActive: boolean;
+  moderation: {
+    status: 'active' | 'suspended' | 'banned' | 'restricted';
+    reason?: string;
+    suspendedUntil?: Date;
+    restrictedAt?: Date;
+    moderatedBy?: string;
+    history: Array<{ action: string; reason?: string; duration?: string; by?: string; at: Date }>;
+  };
   lastSeen?: Date;
   notificationSettings: {
     pushEnabled: boolean;
@@ -489,6 +497,20 @@ const userSchema = new Schema<IUserDocument>(
     isActive: {
       type: Boolean,
       default: true,
+    },
+    moderation: {
+      status: { type: String, enum: ['active', 'suspended', 'banned', 'restricted'], default: 'active' },
+      reason: { type: String },
+      suspendedUntil: { type: Date },
+      restrictedAt: { type: Date },
+      moderatedBy: { type: String },
+      history: [{
+        action: { type: String, required: true },
+        reason: { type: String },
+        duration: { type: String },
+        by: { type: String },
+        at: { type: Date, default: Date.now },
+      }],
     },
     lastSeen: Date,
     notificationSettings: {

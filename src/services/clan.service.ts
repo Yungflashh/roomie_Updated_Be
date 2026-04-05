@@ -112,8 +112,8 @@ class ClanService {
       const query: Record<string, unknown> = {};
       if (search) {
         query.$or = [
-          { name: { $regex: search, $options: 'i' } },
-          { tag: { $regex: search, $options: 'i' } },
+          { name: { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } },
+          { tag: { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } },
         ];
       }
 

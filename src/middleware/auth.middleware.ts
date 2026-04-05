@@ -23,6 +23,48 @@ export const authenticate = async (
 
     try {
       const decoded = verifyAccessToken(token);
+
+      // Check account moderation status (skip for admin tokens)
+      if (!decoded.isAdmin) {
+        const { User } = await import('../models');
+        const user = await User.findById(decoded.userId).select('moderation isActive').lean();
+        if (user) {
+          const mod = (user as any).moderation;
+          if (mod?.status === 'restricted') {
+            res.status(403).json({
+              success: false,
+              code: 'ACCOUNT_RESTRICTED',
+              message: `Your account has been permanently restricted. Reason: ${mod.reason || 'Violation of community guidelines'}. Contact support@roomieng.com for appeals.`,
+            });
+            return;
+          }
+          if (mod?.status === 'suspended' && mod.suspendedUntil && new Date(mod.suspendedUntil) > new Date()) {
+            const until = new Date(mod.suspendedUntil).toLocaleDateString('en-NG', { dateStyle: 'medium' });
+            res.status(403).json({
+              success: false,
+              code: 'ACCOUNT_SUSPENDED',
+              message: `Your account is suspended until ${until}. Reason: ${mod.reason || 'Violation of community guidelines'}.`,
+            });
+            return;
+          }
+          if (mod?.status === 'banned' && mod.suspendedUntil && new Date(mod.suspendedUntil) > new Date()) {
+            const mins = Math.ceil((new Date(mod.suspendedUntil).getTime() - Date.now()) / 60000);
+            res.status(403).json({
+              success: false,
+              code: 'ACCOUNT_BANNED',
+              message: `Your account is temporarily banned for ${mins} more minute(s). Reason: ${mod.reason || 'Violation of community guidelines'}.`,
+            });
+            return;
+          }
+          // Auto-lift expired suspensions/bans
+          if (mod?.status !== 'active' && mod?.status !== 'restricted') {
+            if (!mod?.suspendedUntil || new Date(mod.suspendedUntil) <= new Date()) {
+              await User.findByIdAndUpdate(decoded.userId, { 'moderation.status': 'active' });
+            }
+          }
+        }
+      }
+
       req.user = {
         userId: decoded.userId,
         email: decoded.email,

@@ -2,6 +2,7 @@
 import { User, IUserDocument } from '../models/User';
 import cacheService from './cache.service';
 import logger from '../utils/logger';
+import { escapeRegex } from '../utils/sanitize';
 
 export interface DiscoveryFilters {
   // Location filters
@@ -113,13 +114,13 @@ class DiscoveryService {
 
     // Location filters
     if (searchFilters.city) {
-      query['location.city'] = { $regex: searchFilters.city, $options: 'i' };
+      query['location.city'] = { $regex: escapeRegex(searchFilters.city), $options: 'i' };
     }
     if (searchFilters.state) {
-      query['location.state'] = { $regex: searchFilters.state, $options: 'i' };
+      query['location.state'] = { $regex: escapeRegex(searchFilters.state), $options: 'i' };
     }
     if (searchFilters.country) {
-      query['location.country'] = { $regex: searchFilters.country, $options: 'i' };
+      query['location.country'] = { $regex: escapeRegex(searchFilters.country), $options: 'i' };
     }
 
     // Geo query for distance
@@ -180,7 +181,7 @@ class DiscoveryService {
 
     // Occupation filter
     if (searchFilters.occupation) {
-      query.occupation = { $regex: searchFilters.occupation, $options: 'i' };
+      query.occupation = { $regex: escapeRegex(searchFilters.occupation), $options: 'i' };
     }
 
     // Lifestyle filters
@@ -404,11 +405,11 @@ class DiscoveryService {
       _id: { $nin: excludeIds },
       isActive: true,
       $or: [
-        { firstName: { $regex: keyword, $options: 'i' } },
-        { lastName: { $regex: keyword, $options: 'i' } },
-        { occupation: { $regex: keyword, $options: 'i' } },
-        { bio: { $regex: keyword, $options: 'i' } },
-        { 'location.city': { $regex: keyword, $options: 'i' } },
+        { firstName: { $regex: escapeRegex(keyword), $options: 'i' } },
+        { lastName: { $regex: escapeRegex(keyword), $options: 'i' } },
+        { occupation: { $regex: escapeRegex(keyword), $options: 'i' } },
+        { bio: { $regex: escapeRegex(keyword), $options: 'i' } },
+        { 'location.city': { $regex: escapeRegex(keyword), $options: 'i' } },
         { interests: { $in: [new RegExp(keyword, 'i')] } },
       ],
     })

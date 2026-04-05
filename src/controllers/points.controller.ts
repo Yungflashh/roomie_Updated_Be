@@ -679,10 +679,17 @@ class PointsController {
         return;
       }
 
+      const userId = req.user?.userId;
       const { Transaction } = require('../models');
       const transaction = await Transaction.findOne({ providerReference: reference });
       if (!transaction) {
         res.status(404).json({ success: false, message: 'Transaction not found' });
+        return;
+      }
+
+      // Verify the authenticated user owns this transaction
+      if (transaction.user.toString() !== userId) {
+        res.status(403).json({ success: false, message: 'This transaction does not belong to you' });
         return;
       }
 
@@ -702,10 +709,16 @@ class PointsController {
         transaction.providerMetadata = paystack;
         await transaction.save();
 
-        // Add points to user
-        await User.findByIdAndUpdate(transaction.user, {
-          $inc: { 'gamification.points': pointsAmount },
-        });
+        // Add points to user (through service for proper transaction logging)
+        if (pointsAmount > 0) {
+          await pointsService.addPoints({
+            userId: transaction.user.toString(),
+            amount: pointsAmount,
+            type: 'purchase',
+            reason: `Purchased ${pointsAmount} points`,
+            metadata: { reference, transactionId: transaction._id },
+          });
+        }
 
         // Bust cache
         await cacheService.invalidatePattern(`points:stats:${transaction.user}*`);

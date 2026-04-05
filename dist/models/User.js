@@ -356,6 +356,20 @@ const userSchema = new mongoose_1.Schema({
         type: Boolean,
         default: true,
     },
+    moderation: {
+        status: { type: String, enum: ['active', 'suspended', 'banned', 'restricted'], default: 'active' },
+        reason: { type: String },
+        suspendedUntil: { type: Date },
+        restrictedAt: { type: Date },
+        moderatedBy: { type: String },
+        history: [{
+                action: { type: String, required: true },
+                reason: { type: String },
+                duration: { type: String },
+                by: { type: String },
+                at: { type: Date, default: Date.now },
+            }],
+    },
     lastSeen: Date,
     notificationSettings: {
         pushEnabled: { type: Boolean, default: true },

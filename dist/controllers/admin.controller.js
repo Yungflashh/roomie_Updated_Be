@@ -36,12 +36,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const models_1 = require("../models");
 const AppConfig_1 = require("../models/AppConfig");
 const AuditLog_1 = require("../models/AuditLog");
 const logger_1 = __importDefault(require("../utils/logger"));
 const audit_1 = require("../utils/audit");
+const sanitize_1 = require("../utils/sanitize");
 // Extract admin info from JWT token (since auth middleware is commented out)
 function getAdminInfoFromToken(req) {
     try {
@@ -76,59 +78,41 @@ class AdminController {
     async login(req, res) {
         try {
             const { email, password } = req.body;
-            console.log("Email: ", email, "Password:", password);
-            // Validate input
             if (!email || !password) {
-                res.status(400).json({
-                    success: false,
-                    message: 'Email and password are required'
-                });
+                res.status(400).json({ success: false, message: 'Email and password are required' });
                 return;
             }
-            // Find user and explicitly select password field
-            const admin = await models_1.User.findOne({ email }).select('+password');
-            console.log("An admin det:", admin.password);
+            // Look up in Admin model first, fall back to User model
+            const Admin = (await Promise.resolve().then(() => __importStar(require('../models/Admin')))).default;
+            let admin = await Admin.findOne({ email: email.toLowerCase() });
+            let isAdminModel = true;
             if (!admin) {
-                res.status(401).json({
-                    success: false,
-                    message: 'Invalid email'
-                });
+                // Fall back: check User model for admin-flagged users
+                const user = await models_1.User.findOne({ email: email.toLowerCase() }).select('+password');
+                if (!user) {
+                    res.status(401).json({ success: false, message: 'Invalid credentials' });
+                    return;
+                }
+                // Only allow if user has admin role or is in the Admin collection
+                res.status(403).json({ success: false, message: 'Admin access required' });
                 return;
             }
-            // Check if password exists (TypeScript safety)
-            if (!admin.password) {
-                res.status(401).json({
-                    success: false,
-                    message: 'Invalid password'
-                });
-                return;
-            }
-            // Check if user is admin
-            // Option 1: Check if email contains 'admin' (simple but not recommended for production)
-            // Option 2: Add isAdmin field to User model (recommended)
-            // For now using email check - you should add isAdmin field to User model
-            const isAdminUser = email.toLowerCase().includes('admin');
-            if (!isAdminUser) {
-                res.status(403).json({
-                    success: false,
-                    message: 'Admin access required'
-                });
+            if (!admin.isActive) {
+                res.status(403).json({ success: false, message: 'Account is disabled' });
                 return;
             }
             // Verify password
-            // const isValidPassword = await bcrypt.compare(password, admin.password);
-            // if (!isValidPassword) {
-            //   res.status(401).json({ 
-            //     success: false, 
-            //     message: 'Invalid credentials' 
-            //   });
-            //   return;
-            // }
+            const isValidPassword = await bcryptjs_1.default.compare(password, admin.password);
+            if (!isValidPassword) {
+                res.status(401).json({ success: false, message: 'Invalid credentials' });
+                return;
+            }
             // Generate JWT token
             const token = jsonwebtoken_1.default.sign({
                 userId: admin._id,
                 email: admin.email,
-                isAdmin: true
+                isAdmin: true,
+                role: admin.role,
             }, process.env.JWT_SECRET, { expiresIn: '7d' });
             await (0, audit_1.logAudit)({
                 actor: { id: admin._id.toString(), name: `${admin.firstName} ${admin.lastName}`, email: admin.email },
@@ -279,11 +263,11 @@ class AdminController {
             const query = {};
             if (search) {
                 query.$or = [
-                    { firstName: { $regex: search, $options: 'i' } },
-                    { lastName: { $regex: search, $options: 'i' } },
-                    { email: { $regex: search, $options: 'i' } },
-                    { occupation: { $regex: search, $options: 'i' } },
-                    { 'location.city': { $regex: search, $options: 'i' } },
+                    { firstName: { $regex: (0, sanitize_1.escapeRegex)(search), $options: 'i' } },
+                    { lastName: { $regex: (0, sanitize_1.escapeRegex)(search), $options: 'i' } },
+                    { email: { $regex: (0, sanitize_1.escapeRegex)(search), $options: 'i' } },
+                    { occupation: { $regex: (0, sanitize_1.escapeRegex)(search), $options: 'i' } },
+                    { 'location.city': { $regex: (0, sanitize_1.escapeRegex)(search), $options: 'i' } },
                 ];
             }
             if (status && status !== 'all') {
@@ -303,11 +287,11 @@ class AdminController {
                     query.isActive = false;
             }
             if (city)
-                query['location.city'] = { $regex: city, $options: 'i' };
+                query['location.city'] = { $regex: (0, sanitize_1.escapeRegex)(city), $options: 'i' };
             if (state)
-                query['location.state'] = { $regex: state, $options: 'i' };
+                query['location.state'] = { $regex: (0, sanitize_1.escapeRegex)(state), $options: 'i' };
             if (occupation)
-                query.occupation = { $regex: occupation, $options: 'i' };
+                query.occupation = { $regex: (0, sanitize_1.escapeRegex)(occupation), $options: 'i' };
             if (gender && gender !== 'all')
                 query.gender = gender;
             if (verified === 'true')
@@ -797,18 +781,18 @@ class AdminController {
         try {
             const { page = 1, limit = 20, status } = req.query;
             const skip = (Number(page) - 1) * Number(limit);
-            const query = { type: { $in: ['system', 'reminder'] } };
-            if (status === 'read')
-                query.read = true;
-            if (status === 'unread')
-                query.read = false;
+            const { Report } = await Promise.resolve().then(() => __importStar(require('../models/Report')));
+            const query = {};
+            if (status && status !== 'all')
+                query.status = status;
             const [reports, total] = await Promise.all([
-                models_1.Notification.find(query)
-                    .populate('user', 'firstName lastName email profilePhoto')
+                Report.find(query)
+                    .populate('reporter', 'firstName lastName email profilePhoto')
+                    .populate('reported', 'firstName lastName email profilePhoto')
                     .sort({ createdAt: -1 })
                     .skip(skip)
                     .limit(Number(limit)),
-                models_1.Notification.countDocuments(query),
+                Report.countDocuments(query),
             ]);
             res.json({
                 success: true,
@@ -831,8 +815,10 @@ class AdminController {
     async getReport(req, res) {
         try {
             const { reportId } = req.params;
-            const report = await models_1.Notification.findById(reportId)
-                .populate('user', 'firstName lastName email profilePhoto');
+            const { Report } = await Promise.resolve().then(() => __importStar(require('../models/Report')));
+            const report = await Report.findById(reportId)
+                .populate('reporter', 'firstName lastName email profilePhoto')
+                .populate('reported', 'firstName lastName email profilePhoto');
             if (!report) {
                 res.status(404).json({ success: false, message: 'Report not found' });
                 return;
@@ -847,8 +833,14 @@ class AdminController {
     async updateReport(req, res) {
         try {
             const { reportId } = req.params;
-            const { status } = req.body;
-            const report = await models_1.Notification.findByIdAndUpdate(reportId, { read: status === 'resolved' || status === 'reviewed' }, { new: true });
+            const { status, adminNote } = req.body;
+            const { Report } = await Promise.resolve().then(() => __importStar(require('../models/Report')));
+            const update = { status };
+            if (adminNote)
+                update.adminNote = adminNote;
+            const report = await Report.findByIdAndUpdate(reportId, update, { new: true })
+                .populate('reporter', 'firstName lastName email')
+                .populate('reported', 'firstName lastName email');
             if (!report) {
                 res.status(404).json({ success: false, message: 'Report not found' });
                 return;
@@ -857,9 +849,9 @@ class AdminController {
             await (0, audit_1.logAudit)({
                 actor: await getAdminFromToken(req),
                 actorType: 'admin', action: 'update_report', category: 'report_management',
-                target: { type: 'report', id: reportId, name: report.title || `Report #${reportId.slice(-6)}` },
-                details: `Updated report #${reportId.slice(-6)} status to "${status}"`, req,
-                metadata: { newStatus: status, reportType: report.type }
+                target: { type: 'report', id: reportId, name: `${report.reported?.firstName} reported by ${report.reporter?.firstName}` },
+                details: `Updated report status to "${status}"`, req,
+                metadata: { newStatus: status, reason: report.reason }
             });
             res.json({ success: true, message: 'Report updated successfully', data: { report } });
         }

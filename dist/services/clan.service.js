@@ -132,8 +132,8 @@ class ClanService {
             const query = {};
             if (search) {
                 query.$or = [
-                    { name: { $regex: search, $options: 'i' } },
-                    { tag: { $regex: search, $options: 'i' } },
+                    { name: { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } },
+                    { tag: { $regex: search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } },
                 ];
             }
             const sortOptions = {

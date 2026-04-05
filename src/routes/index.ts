@@ -39,7 +39,8 @@ import cosmeticRoutes from './cosmetic.routes';
 const router = Router();
 
 // API v1 routes
-router.use('/auth', authRoutes);
+import { authLimiter } from '../middleware/rateLimiter';
+router.use('/auth', authLimiter, authRoutes);
 router.use('/users', userRoutes);
 router.use('/matches', matchRoutes);
 router.use('/messages', messageRoutes);
@@ -70,6 +71,8 @@ router.use('/clans', clanRoutes);
 router.use('/cosmetics', cosmeticRoutes);
 import activityRoutes from './activity.routes';
 router.use('/activity', activityRoutes);
+import clanCompetitionRoutes from './clanCompetition.routes';
+router.use('/clan-competition', clanCompetitionRoutes);
 // router.use('/challenges', weeklyChallengeRoutes);
 
 

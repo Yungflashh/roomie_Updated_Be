@@ -40,6 +40,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const User_1 = require("../models/User");
 const cache_service_1 = __importDefault(require("./cache.service"));
 const logger_1 = __importDefault(require("../utils/logger"));
+const sanitize_1 = require("../utils/sanitize");
 class DiscoveryService {
     /**
      * Discover users with advanced filtering
@@ -77,13 +78,13 @@ class DiscoveryService {
         };
         // Location filters
         if (searchFilters.city) {
-            query['location.city'] = { $regex: searchFilters.city, $options: 'i' };
+            query['location.city'] = { $regex: (0, sanitize_1.escapeRegex)(searchFilters.city), $options: 'i' };
         }
         if (searchFilters.state) {
-            query['location.state'] = { $regex: searchFilters.state, $options: 'i' };
+            query['location.state'] = { $regex: (0, sanitize_1.escapeRegex)(searchFilters.state), $options: 'i' };
         }
         if (searchFilters.country) {
-            query['location.country'] = { $regex: searchFilters.country, $options: 'i' };
+            query['location.country'] = { $regex: (0, sanitize_1.escapeRegex)(searchFilters.country), $options: 'i' };
         }
         // Geo query for distance
         if (searchFilters.coordinates && searchFilters.maxDistance) {
@@ -134,7 +135,7 @@ class DiscoveryService {
         }
         // Occupation filter
         if (searchFilters.occupation) {
-            query.occupation = { $regex: searchFilters.occupation, $options: 'i' };
+            query.occupation = { $regex: (0, sanitize_1.escapeRegex)(searchFilters.occupation), $options: 'i' };
         }
         // Lifestyle filters
         if (searchFilters.sleepSchedule) {
@@ -343,11 +344,11 @@ class DiscoveryService {
             _id: { $nin: excludeIds },
             isActive: true,
             $or: [
-                { firstName: { $regex: keyword, $options: 'i' } },
-                { lastName: { $regex: keyword, $options: 'i' } },
-                { occupation: { $regex: keyword, $options: 'i' } },
-                { bio: { $regex: keyword, $options: 'i' } },
-                { 'location.city': { $regex: keyword, $options: 'i' } },
+                { firstName: { $regex: (0, sanitize_1.escapeRegex)(keyword), $options: 'i' } },
+                { lastName: { $regex: (0, sanitize_1.escapeRegex)(keyword), $options: 'i' } },
+                { occupation: { $regex: (0, sanitize_1.escapeRegex)(keyword), $options: 'i' } },
+                { bio: { $regex: (0, sanitize_1.escapeRegex)(keyword), $options: 'i' } },
+                { 'location.city': { $regex: (0, sanitize_1.escapeRegex)(keyword), $options: 'i' } },
                 { interests: { $in: [new RegExp(keyword, 'i')] } },
             ],
         })

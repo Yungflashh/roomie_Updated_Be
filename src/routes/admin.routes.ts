@@ -1,18 +1,20 @@
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import adminController from '../controllers/admin.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { authLimiter } from '../middleware/rateLimiter';
+import { AuthRequest } from '../types';
 
 const router = Router();
 
 /**
  * @route   POST /api/v1/admin/login
  * @desc    Admin login
- * @access  Public
+ * @access  Public (rate limited)
  */
-router.post('/login', adminController.login);
+router.post('/login', authLimiter, adminController.login);
 
 // All routes below require authentication
-// router.use(authenticate);
+router.use(authenticate);
 
 // Dashboard routes
 /**
@@ -101,6 +103,118 @@ router.post('/users/:userId/suspend', adminController.suspendUser);
  * @access  Private (Admin)
  */
 router.post('/users/:userId/unsuspend', adminController.unsuspendUser);
+
+/**
+ * @route   POST /api/v1/admin/users/:userId/moderate
+ * @desc    Moderate a user (suspend/ban/restrict)
+ */
+router.post('/users/:userId/moderate', async (req: AuthRequest, res: Response) => {
+  try {
+    const { action, reason, duration } = req.body;
+    // action: 'suspend' | 'ban' | 'restrict' | 'lift'
+    // duration: for suspend = days (e.g. 7), for ban = hours (e.g. 1)
+    const { User } = await import('../models');
+    const targetUser = await User.findById(req.params.userId).select('email firstName moderation');
+    if (!targetUser) { res.status(404).json({ success: false, message: 'User not found' }); return; }
+
+    const adminEmail = req.user?.email || 'admin';
+    let suspendedUntil: Date | null = null;
+    let status = 'active';
+
+    if (action === 'suspend') {
+      const days = parseInt(duration) || 7;
+      suspendedUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+      status = 'suspended';
+    } else if (action === 'ban') {
+      const hours = parseInt(duration) || 1;
+      suspendedUntil = new Date(Date.now() + hours * 60 * 60 * 1000);
+      status = 'banned';
+    } else if (action === 'restrict') {
+      status = 'restricted';
+    } else if (action === 'lift') {
+      status = 'active';
+    } else {
+      res.status(400).json({ success: false, message: 'Invalid action. Use: suspend, ban, restrict, or lift' });
+      return;
+    }
+
+    await User.findByIdAndUpdate(req.params.userId, {
+      'moderation.status': status,
+      'moderation.reason': reason || 'Violation of community guidelines',
+      'moderation.suspendedUntil': suspendedUntil,
+      'moderation.restrictedAt': status === 'restricted' ? new Date() : null,
+      'moderation.moderatedBy': adminEmail,
+      isActive: status === 'active',
+      $push: {
+        'moderation.history': {
+          action,
+          reason: reason || 'Violation of community guidelines',
+          duration: duration ? `${duration} ${action === 'ban' ? 'hours' : 'days'}` : null,
+          by: adminEmail,
+          at: new Date(),
+        },
+      },
+    });
+
+    // Send email notification
+    try {
+      const { Resend } = await import('resend');
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      const fromEmail = process.env.RESEND_FROM_EMAIL || 'Roomie <support@roomieng.com>';
+      const actionLabels: Record<string, string> = {
+        suspend: `suspended for ${duration || 7} days`,
+        ban: `temporarily banned for ${duration || 1} hour(s)`,
+        restrict: 'permanently restricted',
+        lift: 'reactivated',
+      };
+      await resend.emails.send({
+        to: targetUser.email,
+        from: fromEmail,
+        subject: action === 'lift' ? 'Account Reactivated - Roomie' : 'Account Action Notice - Roomie',
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;">
+            <h2 style="color: #0d9488;">Roomie</h2>
+            <p>Hi ${targetUser.firstName},</p>
+            ${action === 'lift' ? `
+              <p>Good news! Your Roomie account has been reactivated. You can now log in and use the app normally.</p>
+            ` : `
+              <p>Your Roomie account has been <strong>${actionLabels[action]}</strong>.</p>
+              <p><strong>Reason:</strong> ${reason || 'Violation of community guidelines'}</p>
+              ${suspendedUntil ? `<p><strong>Until:</strong> ${suspendedUntil.toLocaleDateString('en-NG', { dateStyle: 'full' })}</p>` : ''}
+              ${status === 'restricted' ? '<p>This is a permanent restriction. If you believe this is an error, please contact us.</p>' : ''}
+            `}
+            <p>If you have questions, contact us at <a href="mailto:support@roomieng.com">support@roomieng.com</a></p>
+            <p style="color: #6b7280; font-size: 12px;">— The Roomie Team</p>
+          </div>
+        `,
+      });
+    } catch (e) {
+      console.warn('Moderation email failed:', e);
+    }
+
+    // Push real-time moderation event to user via socket
+    try {
+      const { emitToUser } = await import('../config/socket.config');
+      if (action !== 'lift') {
+        const actionLabels: Record<string, string> = {
+          suspend: `Your account has been suspended for ${duration || 7} days.`,
+          ban: `Your account has been temporarily banned for ${duration || 1} hour(s).`,
+          restrict: 'Your account has been permanently restricted.',
+        };
+        emitToUser(req.params.userId, 'account:moderated', {
+          status,
+          reason: reason || 'Violation of community guidelines',
+          message: actionLabels[action] || 'Your account status has changed.',
+          suspendedUntil,
+        });
+      }
+    } catch {}
+
+    res.json({ success: true, message: `User ${action === 'lift' ? 'reactivated' : action + 'ed'} successfully` });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
 
 /**
  * @route   DELETE /api/v1/admin/users/:userId
