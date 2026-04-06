@@ -751,6 +751,55 @@ router.post('/wars/:warId/respond', async (req: AuthRequest, res: Response) => {
 });
 
 /**
+ * POST /api/v1/clans/wars/:warId/cancel
+ * Cancel a war (costs treasury points or uses War Shield)
+ */
+router.post('/wars/:warId/cancel', async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ success: false, message: 'Unauthorized' }); return; }
+
+    const { clanId } = req.body;
+    if (!clanId) {
+      res.status(400).json({ success: false, message: 'clanId is required' });
+      return;
+    }
+
+    const war = await clanService.cancelWar(clanId, req.params.warId, userId);
+    res.json({ success: true, data: war });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to cancel war';
+    const status = message.includes('Not enough') || message.includes('Only') || message.includes('already') ? 400 : 500;
+    res.status(status).json({ success: false, message });
+  }
+});
+
+/**
+ * POST /api/v1/clans/wars/:warId/start-match
+ * Start a game session for a war match
+ */
+router.post('/wars/:warId/start-match', async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) { res.status(401).json({ success: false, message: 'Unauthorized' }); return; }
+
+    const { matchIndex } = req.body;
+    if (matchIndex === undefined || matchIndex === null) {
+      res.status(400).json({ success: false, message: 'matchIndex is required' });
+      return;
+    }
+
+    const gameService = (await import('../services/game.service')).default;
+    const session = await gameService.createWarGameSession(req.params.warId, matchIndex, userId);
+    res.json({ success: true, data: session });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to start war match';
+    const status = message.includes('not') || message.includes('Invalid') || message.includes('already') ? 400 : 500;
+    res.status(status).json({ success: false, message });
+  }
+});
+
+/**
  * POST /api/v1/clans/wars/:warId/assign-players
  * Assign players to war matchups
  */

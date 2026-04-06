@@ -32,6 +32,8 @@ export interface IGameSessionPlayer {
 export interface IGameSessionDocument extends Document {
     game: mongoose.Types.ObjectId;
     match?: mongoose.Types.ObjectId;
+    warId?: mongoose.Types.ObjectId;
+    warMatchIndex?: number;
     players: IGameSessionPlayer[];
     invitedBy?: mongoose.Types.ObjectId;
     invitedUser?: mongoose.Types.ObjectId;

@@ -161,10 +161,9 @@ class AuthService {
         }
         // Generate tokens
         const { accessToken, refreshToken } = (0, jwt_1.generateTokenPair)(user._id.toString(), user.email);
-        // Update refresh token and last seen
-        user.refreshToken = refreshToken;
-        user.lastSeen = new Date();
-        await user.save();
+        // Update refresh token and last seen (use findOneAndUpdate to avoid VersionError
+        // since awardDailyLoginBonus may have modified the user document already)
+        await models_1.User.findOneAndUpdate({ _id: user._id }, { $set: { refreshToken, lastSeen: new Date() } });
         // Fetch fresh user data for response
         const freshUser = await models_1.User.findById(user._id);
         if (!freshUser) {

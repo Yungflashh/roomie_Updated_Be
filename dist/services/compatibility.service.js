@@ -3,6 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+const models_1 = require("../models");
 const dayjs_1 = __importDefault(require("dayjs"));
 class CompatibilityService {
     /**
@@ -249,6 +250,289 @@ class CompatibilityService {
     }
     toRad(degrees) {
         return degrees * (Math.PI / 180);
+    }
+    /**
+     * Get a detailed compatibility report between two users
+     */
+    async getDetailedCompatibilityReport(userId1, userId2) {
+        const [user1, user2] = await Promise.all([
+            models_1.User.findById(userId1),
+            models_1.User.findById(userId2),
+        ]);
+        if (!user1 || !user2) {
+            throw new Error('One or both users not found');
+        }
+        const factors = this.calculateFactors(user1, user2);
+        const overallScore = this.calculateCompatibility(user1, user2);
+        const budgetBreakdown = this.getBudgetDetail(user1, user2, factors.budgetScore);
+        const locationBreakdown = this.getLocationDetail(user1, user2, factors.locationScore);
+        const lifestyleBreakdown = this.getLifestyleDetail(user1, user2, factors.lifestyleScore);
+        const interestsBreakdown = this.getInterestsDetail(user1, user2, factors.interestsScore);
+        const preferencesBreakdown = this.getPreferencesDetail(user1, user2, factors.preferencesScore);
+        const ageBreakdown = this.getAgeDetail(user1, user2, factors.ageScore);
+        const tips = this.generateTips(factors, user1, user2, lifestyleBreakdown, interestsBreakdown);
+        return {
+            overallScore,
+            breakdown: {
+                budget: budgetBreakdown,
+                location: locationBreakdown,
+                lifestyle: lifestyleBreakdown,
+                interests: interestsBreakdown,
+                preferences: preferencesBreakdown,
+                age: ageBreakdown,
+            },
+            tips,
+        };
+    }
+    getBudgetDetail(user1, user2, score) {
+        let detail;
+        if (!user1.preferences?.budget || !user2.preferences?.budget) {
+            detail = 'Budget information not available for one or both users';
+        }
+        else {
+            const b1 = user1.preferences.budget;
+            const b2 = user2.preferences.budget;
+            const currency = b1.currency || '₦';
+            if (score === 0) {
+                detail = `No budget overlap: ${currency}${b1.min.toLocaleString()}-${b1.max.toLocaleString()} vs ${currency}${b2.min.toLocaleString()}-${b2.max.toLocaleString()}`;
+            }
+            else if (score >= 80) {
+                const overlapMin = Math.max(b1.min, b2.min);
+                const overlapMax = Math.min(b1.max, b2.max);
+                detail = `Both looking for ${currency}${overlapMin.toLocaleString()}-${overlapMax.toLocaleString()} range`;
+            }
+            else {
+                detail = `Partial budget overlap between ${currency}${Math.max(b1.min, b2.min).toLocaleString()} and ${currency}${Math.min(b1.max, b2.max).toLocaleString()}`;
+            }
+        }
+        return { score, weight: 0.25, detail };
+    }
+    getLocationDetail(user1, user2, score) {
+        let detail;
+        if (!user1.location?.coordinates || !user2.location?.coordinates) {
+            detail = 'Location information not available for one or both users';
+        }
+        else {
+            const [lon1, lat1] = user1.location.coordinates;
+            const [lon2, lat2] = user2.location.coordinates;
+            const distance = this.calculateDistance(lat1, lon1, lat2, lon2);
+            if (distance <= 1) {
+                detail = 'Less than 1km apart';
+            }
+            else {
+                detail = `${Math.round(distance)}km apart`;
+            }
+            if (user1.location.city && user2.location.city) {
+                if (user1.location.city === user2.location.city) {
+                    detail += ` (both in ${user1.location.city})`;
+                }
+                else {
+                    detail += ` (${user1.location.city} / ${user2.location.city})`;
+                }
+            }
+        }
+        return { score, weight: 0.20, detail };
+    }
+    getLifestyleDetail(user1, user2, score) {
+        const l1 = user1.lifestyle || {};
+        const l2 = user2.lifestyle || {};
+        const sleepMatch = l1.sleepSchedule && l2.sleepSchedule
+            ? l1.sleepSchedule === l2.sleepSchedule || l1.sleepSchedule === 'flexible' || l2.sleepSchedule === 'flexible'
+            : false;
+        const cleanlinessMatch = l1.cleanliness && l2.cleanliness
+            ? Math.abs(l1.cleanliness - l2.cleanliness) <= 1
+            : false;
+        const socialMatch = l1.socialLevel && l2.socialLevel
+            ? Math.abs(l1.socialLevel - l2.socialLevel) <= 1
+            : false;
+        const guestMatch = l1.guestFrequency && l2.guestFrequency
+            ? l1.guestFrequency === l2.guestFrequency
+            : false;
+        const wfhMatch = typeof l1.workFromHome === 'boolean' && typeof l2.workFromHome === 'boolean'
+            ? l1.workFromHome === l2.workFromHome
+            : false;
+        const matchCount = [sleepMatch, cleanlinessMatch, socialMatch, guestMatch, wfhMatch].filter(Boolean).length;
+        let detail;
+        if (matchCount >= 4) {
+            detail = 'Very compatible lifestyles';
+        }
+        else if (matchCount >= 2) {
+            detail = 'Mostly compatible lifestyles with some differences';
+        }
+        else {
+            detail = 'Different lifestyles — communication is key';
+        }
+        return {
+            score,
+            weight: 0.20,
+            detail,
+            subcategories: {
+                sleepSchedule: {
+                    match: sleepMatch,
+                    user1: l1.sleepSchedule || 'not set',
+                    user2: l2.sleepSchedule || 'not set',
+                },
+                cleanliness: {
+                    match: cleanlinessMatch,
+                    user1: l1.cleanliness || 0,
+                    user2: l2.cleanliness || 0,
+                },
+                socialLevel: {
+                    match: socialMatch,
+                    user1: l1.socialLevel || 0,
+                    user2: l2.socialLevel || 0,
+                },
+                guestFrequency: {
+                    match: guestMatch,
+                    user1: l1.guestFrequency || 'not set',
+                    user2: l2.guestFrequency || 'not set',
+                },
+                workFromHome: {
+                    match: wfhMatch,
+                    user1: l1.workFromHome ?? false,
+                    user2: l2.workFromHome ?? false,
+                },
+            },
+        };
+    }
+    getInterestsDetail(user1, user2, score) {
+        const i1 = new Set(user1.interests || []);
+        const i2 = new Set(user2.interests || []);
+        const shared = [...i1].filter((x) => i2.has(x));
+        const unique1 = [...i1].filter((x) => !i2.has(x));
+        const unique2 = [...i2].filter((x) => !i1.has(x));
+        let detail;
+        if (shared.length === 0) {
+            detail = 'No shared interests — a chance to learn from each other';
+        }
+        else if (shared.length <= 2) {
+            detail = `${shared.length} shared interest${shared.length > 1 ? 's' : ''}: ${shared.join(', ')}`;
+        }
+        else {
+            detail = `${shared.length} shared interests including ${shared.slice(0, 3).join(', ')}`;
+        }
+        return { score, weight: 0.15, detail, shared, unique1, unique2 };
+    }
+    getPreferencesDetail(user1, user2, score) {
+        let detail;
+        if (!user1.preferences || !user2.preferences) {
+            detail = 'Preference information not available';
+        }
+        else {
+            const matchPoints = [];
+            const diffPoints = [];
+            const p1 = user1.preferences;
+            const p2 = user2.preferences;
+            if (p1.roomType && p2.roomType) {
+                if (p1.roomType === p2.roomType || p1.roomType === 'any' || p2.roomType === 'any') {
+                    matchPoints.push('room type');
+                }
+                else {
+                    diffPoints.push('room type');
+                }
+            }
+            if (typeof p1.petFriendly === 'boolean' && typeof p2.petFriendly === 'boolean') {
+                if (p1.petFriendly === p2.petFriendly) {
+                    matchPoints.push('pet policy');
+                }
+                else {
+                    diffPoints.push('pet policy');
+                }
+            }
+            if (typeof p1.smoking === 'boolean' && typeof p2.smoking === 'boolean') {
+                if (p1.smoking === p2.smoking) {
+                    matchPoints.push('smoking policy');
+                }
+                else {
+                    diffPoints.push('smoking policy');
+                }
+            }
+            if (matchPoints.length > 0 && diffPoints.length === 0) {
+                detail = `Aligned on ${matchPoints.join(', ')}`;
+            }
+            else if (diffPoints.length > 0 && matchPoints.length === 0) {
+                detail = `Differ on ${diffPoints.join(', ')}`;
+            }
+            else if (matchPoints.length > 0 && diffPoints.length > 0) {
+                detail = `Aligned on ${matchPoints.join(', ')} but differ on ${diffPoints.join(', ')}`;
+            }
+            else {
+                detail = 'Limited preference data to compare';
+            }
+        }
+        return { score, weight: 0.15, detail };
+    }
+    getAgeDetail(user1, user2, score) {
+        let detail;
+        if (!user1.dateOfBirth || !user2.dateOfBirth) {
+            detail = 'Age information not available';
+        }
+        else {
+            const age1 = (0, dayjs_1.default)().diff((0, dayjs_1.default)(user1.dateOfBirth), 'year');
+            const age2 = (0, dayjs_1.default)().diff((0, dayjs_1.default)(user2.dateOfBirth), 'year');
+            const diff = Math.abs(age1 - age2);
+            if (diff === 0) {
+                detail = `Both are ${age1} years old`;
+            }
+            else if (diff <= 2) {
+                detail = `Close in age (${age1} and ${age2})`;
+            }
+            else {
+                detail = `${diff} year age gap (${age1} and ${age2})`;
+            }
+            if (score < 50) {
+                detail += ' — outside preferred range';
+            }
+        }
+        return { score, weight: 0.05, detail };
+    }
+    generateTips(factors, user1, user2, lifestyle, interests) {
+        const tips = [];
+        // Budget tips
+        if (factors.budgetScore >= 80) {
+            tips.push('Great budget alignment! You can focus on finding the right place together.');
+        }
+        else if (factors.budgetScore < 40) {
+            tips.push('Your budgets differ quite a bit — have an honest conversation about what each person can afford.');
+        }
+        // Lifestyle tips
+        if (!lifestyle.subcategories.cleanliness.match && lifestyle.subcategories.cleanliness.user1 > 0 && lifestyle.subcategories.cleanliness.user2 > 0) {
+            tips.push('You differ on cleanliness standards — discuss expectations and chore splits early.');
+        }
+        if (!lifestyle.subcategories.sleepSchedule.match && lifestyle.subcategories.sleepSchedule.user1 !== 'not set') {
+            tips.push('Different sleep schedules — agree on quiet hours to keep things smooth.');
+        }
+        if (!lifestyle.subcategories.guestFrequency.match && lifestyle.subcategories.guestFrequency.user1 !== 'not set') {
+            tips.push('You have different guest preferences — set ground rules about visitors.');
+        }
+        // Interest tips
+        if (interests.shared.length >= 3) {
+            tips.push(`You share ${interests.shared.length} interests — plenty of common ground!`);
+        }
+        else if (interests.shared.length === 0 && interests.unique1.length > 0 && interests.unique2.length > 0) {
+            tips.push('No shared interests yet — a great chance to discover new hobbies together.');
+        }
+        // Location tip
+        if (factors.locationScore >= 90) {
+            tips.push('You are very close to each other — convenient for house-hunting together.');
+        }
+        // Preferences tip
+        if (factors.preferencesScore < 50) {
+            tips.push('Some key preferences differ (room type, pets, or smoking) — make sure to discuss deal-breakers.');
+        }
+        // Keep tips to 2-4
+        if (tips.length > 4) {
+            return tips.slice(0, 4);
+        }
+        if (tips.length < 2) {
+            if (factors.budgetScore + factors.locationScore + factors.lifestyleScore > 200) {
+                tips.push('Overall a solid match — meet up and see how it goes!');
+            }
+            if (tips.length < 2) {
+                tips.push('Take time to chat and learn about each other before committing.');
+            }
+        }
+        return tips;
     }
 }
 exports.default = new CompatibilityService();

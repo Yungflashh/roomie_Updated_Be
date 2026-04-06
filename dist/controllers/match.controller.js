@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const match_service_1 = __importDefault(require("../services/match.service"));
+const compatibility_service_1 = __importDefault(require("../services/compatibility.service"));
 const cache_service_1 = __importDefault(require("../services/cache.service"));
 const points_service_1 = __importDefault(require("../services/points.service"));
 const logger_1 = __importDefault(require("../utils/logger"));
@@ -360,6 +361,42 @@ class MatchController {
             res.status(statusCode).json({
                 success: false,
                 message: error.message || 'Failed to create inquiry',
+            });
+        }
+    }
+    /**
+     * Get detailed compatibility report between current user and target user
+     */
+    async getCompatibilityReport(req, res) {
+        try {
+            const currentUserId = req.user?.userId;
+            const targetUserId = req.params.userId;
+            if (!targetUserId) {
+                res.status(400).json({
+                    success: false,
+                    message: 'Target user ID is required',
+                });
+                return;
+            }
+            if (currentUserId === targetUserId) {
+                res.status(400).json({
+                    success: false,
+                    message: 'Cannot generate a compatibility report with yourself',
+                });
+                return;
+            }
+            const report = await compatibility_service_1.default.getDetailedCompatibilityReport(currentUserId, targetUserId);
+            res.status(200).json({
+                success: true,
+                data: report,
+            });
+        }
+        catch (error) {
+            logger_1.default.error('Compatibility report error:', error);
+            const statusCode = error.message?.includes('not found') ? 404 : 500;
+            res.status(statusCode).json({
+                success: false,
+                message: error.message || 'Failed to generate compatibility report',
             });
         }
     }

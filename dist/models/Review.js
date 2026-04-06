@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Review = void 0;
+exports.RoommateReview = exports.Review = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
 const reviewSchema = new mongoose_1.Schema({
     reviewer: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -59,4 +59,25 @@ reviewSchema.index({ reviewer: 1, rentalAgreement: 1 }, { unique: true });
 reviewSchema.index({ reviewee: 1, isVisible: 1 });
 reviewSchema.index({ property: 1, isVisible: 1 });
 exports.Review = mongoose_1.default.model('Review', reviewSchema);
+const roommateReviewSchema = new mongoose_1.Schema({
+    reviewer: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
+    reviewee: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
+    match: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Match' },
+    roommateGroup: { type: mongoose_1.Schema.Types.ObjectId, ref: 'RoommateGroup' },
+    overallRating: { type: Number, required: true, min: 1, max: 5 },
+    categories: {
+        cleanliness: { type: Number, min: 1, max: 5 },
+        communication: { type: Number, min: 1, max: 5 },
+        reliability: { type: Number, min: 1, max: 5 },
+        respectfulness: { type: Number, min: 1, max: 5 },
+        noiseLevel: { type: Number, min: 1, max: 5 },
+    },
+    comment: { type: String, maxlength: 500 },
+    wouldRecommend: Boolean,
+    livedTogetherMonths: Number,
+    isVisible: { type: Boolean, default: true },
+}, { timestamps: true });
+roommateReviewSchema.index({ reviewer: 1, reviewee: 1 }, { unique: true });
+roommateReviewSchema.index({ reviewee: 1, isVisible: 1 });
+exports.RoommateReview = mongoose_1.default.model('RoommateReview', roommateReviewSchema);
 //# sourceMappingURL=Review.js.map

@@ -68,6 +68,13 @@ router.post('/request/:targetUserId', requireVerification, validate(likeUserVali
 router.post('/pass/:targetUserId', validate(likeUserValidation), matchController.passUser);
 
 /**
+ * @route   GET /api/v1/matches/compatibility-report/:userId
+ * @desc    Get detailed compatibility report between current user and target user
+ * @access  Private
+ */
+router.get('/compatibility-report/:userId', matchController.getCompatibilityReport);
+
+/**
  * @route   GET /api/v1/matches
  * @desc    Get user's matches
  * @access  Private

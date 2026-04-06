@@ -109,6 +109,13 @@ const gameSessionSchema = new mongoose_1.Schema({
         ref: 'Match',
         index: true,
     },
+    warId: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: 'ClanWar',
+    },
+    warMatchIndex: {
+        type: Number,
+    },
     players: [{
             user: {
                 type: mongoose_1.Schema.Types.ObjectId,

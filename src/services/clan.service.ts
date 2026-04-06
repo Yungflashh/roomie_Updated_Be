@@ -633,8 +633,8 @@ class ClanService {
       if (!clan) throw new Error('Clan not found.');
 
       const actor = clan.members.find(m => m.user.toString() === userId);
-      if (!actor || actor.role !== 'co-leader') {
-        throw new Error('Only co-leaders can claim leadership.');
+      if (!actor) {
+        throw new Error('You must be a member of the clan to claim leadership.');
       }
 
       // Check leader inactivity
@@ -660,7 +660,7 @@ class ClanService {
       const oldLeader = clan.members.find(m => m.user.toString() === clan.leader.toString());
       if (oldLeader) oldLeader.role = 'member';
 
-      // Promote co-leader to leader
+      // Promote member to leader
       actor.role = 'leader';
       clan.leader = new mongoose.Types.ObjectId(userId);
       clan.coLeaders = clan.coLeaders.filter(id => id.toString() !== userId);
@@ -683,7 +683,7 @@ class ClanService {
             user: oldLeader.user.toString(),
             type: 'system',
             title: 'Leadership Transferred',
-            body: `Leadership of [${clan.tag}] was claimed by a co-leader due to your inactivity.`,
+            body: `Leadership of [${clan.tag}] was claimed by a member due to your inactivity.`,
             data: { clanId },
           });
         }
@@ -1023,6 +1023,11 @@ class ClanService {
       });
       if (activeWar) throw new Error('There is already an active war between these clans.');
 
+      // Check challenger has enough treasury to stake
+      if (pointsStake > 0 && (challenger.treasury || 0) < pointsStake) {
+        throw new Error(`Your clan treasury has ${challenger.treasury || 0} points but you need ${pointsStake} to stake. Earn more before starting a war!`);
+      }
+
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + 24); // 24h to accept
 
@@ -1076,28 +1081,78 @@ class ClanService {
       }
 
       if (accept) {
-        war.status = 'accepted';
+        war.status = 'in_progress';
+        war.startedAt = new Date();
+        // Extend expiry for gameplay (48h)
+        const newExpiry = new Date();
+        newExpiry.setHours(newExpiry.getHours() + 48);
+        war.expiresAt = newExpiry;
         logger.info(`Clan war ${warId} accepted`);
 
-        // Notify challenger
-        const challenger = await Clan.findById(war.challenger);
-        if (challenger) {
+        // Auto-assign all members from both clans
+        const [challenger, defender] = await Promise.all([
+          Clan.findById(war.challenger),
+          Clan.findById(war.defender),
+        ]);
+
+        if (challenger && defender) {
+          const challengerPlayerIds = challenger.members.map((m) => m.user);
+          const defenderPlayerIds = defender.members.map((m) => m.user);
+          const gameTypes = ['speed_math', 'word_scramble', 'emoji_guess', 'memory_match', 'trivia'];
+          const matchCount = Math.max(challengerPlayerIds.length, defenderPlayerIds.length);
+
+          war.matches = [];
+          for (let i = 0; i < matchCount; i++) {
+            war.matches.push({
+              challengerPlayer: challengerPlayerIds[i % challengerPlayerIds.length],
+              defenderPlayer: defenderPlayerIds[i % defenderPlayerIds.length],
+              gameType: gameTypes[i % gameTypes.length],
+              challengerScore: 0,
+              defenderScore: 0,
+              winner: null,
+              status: 'pending',
+            } as IClanWarDocument['matches'][number]);
+          }
+
+          // Notify all matched players from both clans
           try {
-            await notificationService.createNotification({
-              user: challenger.leader.toString(),
-              type: 'system',
-              title: 'War Accepted!',
-              body: `Your clan war challenge has been accepted! Assign your players.`,
-              data: { warId: war._id.toString(), clanId: war.challenger.toString() },
-            });
+            const gameTypeLabels: Record<string, string> = {
+              speed_math: 'Speed Math', word_scramble: 'Word Scramble',
+              emoji_guess: 'Emoji Guess', memory_match: 'Memory Match', trivia: 'Trivia',
+            };
+            const { User: UserModel } = await import('../models');
+            for (let i = 0; i < war.matches.length; i++) {
+              const m = war.matches[i];
+              const challengerUser = await UserModel.findById(m.challengerPlayer).select('firstName').lean();
+              const defenderUser = await UserModel.findById(m.defenderPlayer).select('firstName').lean();
+              const gameLabel = gameTypeLabels[m.gameType] || m.gameType;
+
+              // Notify challenger player
+              await notificationService.createNotification({
+                user: m.challengerPlayer.toString(),
+                type: 'system',
+                title: `War Match: ${gameLabel}!`,
+                body: `You've been matched against ${defenderUser?.firstName || 'an opponent'} in [${defender.tag}]. Open the war to play!`,
+                data: { type: 'war_match', warId: war._id.toString(), matchIndex: i.toString() },
+              }).catch(() => {});
+
+              // Notify defender player
+              await notificationService.createNotification({
+                user: m.defenderPlayer.toString(),
+                type: 'system',
+                title: `War Match: ${gameLabel}!`,
+                body: `You've been matched against ${challengerUser?.firstName || 'an opponent'} in [${challenger.tag}]. Open the war to play!`,
+                data: { type: 'war_match', warId: war._id.toString(), matchIndex: i.toString() },
+              }).catch(() => {});
+            }
           } catch (e) {
-            logger.warn('War accept notification error:', e);
+            logger.warn('War match notification error:', e);
           }
 
           // Emit socket event to challenger clan members
           try {
             const memberIds = challenger.members.map((m) => m.user.toString());
-            emitClanWarUpdate(memberIds, 'clan:war_accepted', { warId: war._id.toString(), status: 'accepted' });
+            emitClanWarUpdate(memberIds, 'clan:war_accepted', { warId: war._id.toString(), status: 'in_progress' });
           } catch {}
         }
       } else {
@@ -1119,6 +1174,84 @@ class ClanService {
       return war;
     } catch (error) {
       logger.error('respondToWar error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Cancel a war. Costs treasury points unless the clan has an active War Shield.
+   */
+  async cancelWar(clanId: string, warId: string, userId: string): Promise<IClanWarDocument> {
+    try {
+      const war = await ClanWar.findById(warId);
+      if (!war) throw new Error('War not found.');
+
+      if (war.status === 'completed' || war.status === 'declined' || war.status === 'expired') {
+        throw new Error('This war is already finished.');
+      }
+
+      const isChallenger = war.challenger.toString() === clanId;
+      const isDefender = war.defender.toString() === clanId;
+      if (!isChallenger && !isDefender) throw new Error('Your clan is not part of this war.');
+
+      const clan = await Clan.findById(clanId);
+      if (!clan) throw new Error('Clan not found.');
+
+      // Must be leader or co-leader
+      const member = clan.members.find(m => m.user.toString() === userId);
+      if (!member || !ClanService.hasRank(member.role, 'co-leader')) {
+        throw new Error('Only leaders and co-leaders can cancel wars.');
+      }
+
+      // Check for active War Shield
+      const warShield = (clan.purchasedUpgrades || []).find(
+        p => p.itemId === 'war_shield_24h' && p.expiresAt && p.expiresAt > new Date()
+      );
+
+      const CANCEL_COST = 200;
+
+      if (warShield) {
+        logger.info(`Clan ${clan.tag} used War Shield to cancel war ${warId} for free`);
+      } else {
+        // Deduct from treasury
+        if ((clan.treasury || 0) < CANCEL_COST) {
+          throw new Error(`Cancelling a war costs ${CANCEL_COST} treasury points. Not enough funds. Buy a War Shield from the shop to cancel for free.`);
+        }
+        clan.treasury -= CANCEL_COST;
+        await clan.save();
+      }
+
+      war.status = 'declined';
+      await war.save();
+
+      // Log activity
+      await this.logActivity(clanId, 'war_cancelled', userId, `cancelled war${warShield ? ' (used War Shield)' : ` (cost ${CANCEL_COST} treasury pts)`}`);
+
+      // Notify the other clan
+      const otherClanId = isChallenger ? war.defender.toString() : war.challenger.toString();
+      try {
+        const otherClan = await Clan.findById(otherClanId);
+        if (otherClan) {
+          await notificationService.createNotification({
+            user: otherClan.leader.toString(),
+            type: 'system',
+            title: 'War Cancelled',
+            body: `Clan [${clan.tag}] has cancelled the war.`,
+            data: { warId: war._id.toString(), clanId: otherClanId },
+          });
+
+          // Emit socket event
+          try {
+            const memberIds = otherClan.members.map((m) => m.user.toString());
+            emitClanWarUpdate(memberIds, 'clan:war_declined', { warId: war._id.toString(), status: 'declined' });
+          } catch {}
+        }
+      } catch (e) { logger.warn('War cancel notification error:', e); }
+
+      logger.info(`Clan ${clan.tag} cancelled war ${warId}`);
+      return war;
+    } catch (error) {
+      logger.error('cancelWar error:', error);
       throw error;
     }
   }

@@ -2,6 +2,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../types';
 import matchService from '../services/match.service';
+import compatibilityService from '../services/compatibility.service';
 import cacheService from '../services/cache.service';
 import pointsService from '../services/points.service';
 import logger from '../utils/logger';
@@ -452,6 +453,49 @@ class MatchController {
       res.status(statusCode).json({
         success: false,
         message: error.message || 'Failed to create inquiry',
+      });
+    }
+  }
+
+  /**
+   * Get detailed compatibility report between current user and target user
+   */
+  async getCompatibilityReport(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const currentUserId = req.user?.userId!;
+      const targetUserId = req.params.userId;
+
+      if (!targetUserId) {
+        res.status(400).json({
+          success: false,
+          message: 'Target user ID is required',
+        });
+        return;
+      }
+
+      if (currentUserId === targetUserId) {
+        res.status(400).json({
+          success: false,
+          message: 'Cannot generate a compatibility report with yourself',
+        });
+        return;
+      }
+
+      const report = await compatibilityService.getDetailedCompatibilityReport(
+        currentUserId,
+        targetUserId,
+      );
+
+      res.status(200).json({
+        success: true,
+        data: report,
+      });
+    } catch (error: any) {
+      logger.error('Compatibility report error:', error);
+      const statusCode = error.message?.includes('not found') ? 404 : 500;
+      res.status(statusCode).json({
+        success: false,
+        message: error.message || 'Failed to generate compatibility report',
       });
     }
   }

@@ -19,5 +19,5 @@ export { Confession, IConfessionDocument } from './Confession';
 export { StudyQuestion, IStudyQuestionDocument } from './StudyQuestion';
 export { ListingInquiry, IListingInquiryDocument } from './ListingInquiry';
 export { RentalAgreement, IRentalAgreementDocument } from './RentalAgreement';
-export { Review, IReviewDocument } from './Review';
+export { Review, IReviewDocument, RoommateReview, IRoommateReviewDocument, IRoommateReviewCategories } from './Review';
 export { Clan, ClanWar, IClanDocument, IClanWarDocument } from './Clan';

@@ -599,12 +599,6 @@ class StudyBuddyService {
             if (session.status !== 'active' && session.status !== 'pending') {
                 throw new Error('Session is not active');
             }
-            // Auto-activate pending sessions
-            if (session.status === 'pending') {
-                session.status = 'active';
-                if (!session.startedAt)
-                    session.startedAt = new Date();
-            }
             const isCreator = session.creator.toString() === userId;
             const isOpponent = session.opponent?.toString() === userId;
             if (!isCreator && !isOpponent) {
@@ -629,43 +623,57 @@ class StudyBuddyService {
                 }
                 return total;
             }, 0);
+            // Step 1: Atomically save this user's answers and get the fresh doc back
+            const answerUpdate = {};
             if (isCreator) {
-                session.creatorAnswers = scoredAnswers;
-                session.creatorScore = score;
+                answerUpdate.creatorAnswers = scoredAnswers;
+                answerUpdate.creatorScore = score;
             }
             else {
-                session.opponentAnswers = scoredAnswers;
-                session.opponentScore = score;
+                answerUpdate.opponentAnswers = scoredAnswers;
+                answerUpdate.opponentScore = score;
             }
-            // Check if session should be completed
-            const creatorDone = session.creatorAnswers.length > 0;
-            const opponentDone = session.mode === 'solo' || session.opponentAnswers.length > 0;
+            // Auto-activate pending sessions
+            if (session.status === 'pending') {
+                answerUpdate.status = 'active';
+                answerUpdate.startedAt = new Date();
+            }
+            const fresh = await StudyBuddy_1.StudySession.findOneAndUpdate({ _id: sessionId }, { $set: answerUpdate }, { new: true });
+            if (!fresh)
+                throw new Error('Session not found');
+            // Step 2: Check completion using the FRESH doc (has both users' answers)
+            const creatorDone = fresh.creatorAnswers.length > 0;
+            const opponentDone = fresh.mode === 'solo' || fresh.opponentAnswers.length > 0;
             if (creatorDone && opponentDone) {
-                session.status = 'completed';
-                session.completedAt = new Date();
-                const correctCount = scoredAnswers.filter(a => a.correct).length;
-                const isPerfect = correctCount === session.totalQuestions;
-                if (session.mode === 'solo') {
-                    // No points for solo — it's just practice
+                // Determine winner
+                let winnerId;
+                if (fresh.mode === 'challenge') {
+                    if (fresh.creatorScore > fresh.opponentScore) {
+                        winnerId = fresh.creator.toString();
+                    }
+                    else if (fresh.opponentScore > fresh.creatorScore) {
+                        winnerId = fresh.opponent?.toString();
+                    }
                 }
-                else if (session.mode === 'challenge') {
-                    if (session.creatorScore > session.opponentScore) {
-                        session.winner = session.creator;
-                    }
-                    else if (session.opponentScore > session.creatorScore) {
-                        session.winner = session.opponent;
-                    }
-                    // Award points to both players
-                    const winnerId = session.winner?.toString();
-                    const loserId = winnerId === session.creator.toString() ? session.opponent?.toString() : session.creator.toString();
+                // Atomically mark as completed (only if still active — prevents double-completion)
+                const completionUpdate = {
+                    status: 'completed',
+                    completedAt: new Date(),
+                };
+                if (winnerId)
+                    completionUpdate.winner = winnerId;
+                const completed = await StudyBuddy_1.StudySession.findOneAndUpdate({ _id: sessionId, status: { $ne: 'completed' } }, { $set: completionUpdate }, { new: true });
+                // Only run post-completion logic if WE were the one to mark it completed
+                if (completed && fresh.mode === 'challenge') {
+                    const loserId = winnerId === fresh.creator.toString() ? fresh.opponent?.toString() : fresh.creator.toString();
                     try {
                         if (winnerId) {
                             await points_service_1.default.addPoints({
                                 userId: winnerId,
                                 amount: STUDY_POINTS.challengeWin,
                                 type: 'game_reward',
-                                reason: `Won study challenge in ${session.category}`,
-                                metadata: { sessionId: session._id },
+                                reason: `Won study challenge in ${fresh.category}`,
+                                metadata: { sessionId: fresh._id },
                             });
                         }
                         if (loserId) {
@@ -673,19 +681,18 @@ class StudyBuddyService {
                                 userId: loserId,
                                 amount: STUDY_POINTS.challengeLoser,
                                 type: 'game_reward',
-                                reason: `Completed study challenge in ${session.category}`,
-                                metadata: { sessionId: session._id },
+                                reason: `Completed study challenge in ${fresh.category}`,
+                                metadata: { sessionId: fresh._id },
                             });
                         }
                         if (!winnerId) {
-                            // Tie — both get moderate points
-                            for (const uid of [session.creator.toString(), session.opponent?.toString()].filter(Boolean)) {
+                            for (const uid of [fresh.creator.toString(), fresh.opponent?.toString()].filter(Boolean)) {
                                 await points_service_1.default.addPoints({
                                     userId: uid,
                                     amount: 10,
                                     type: 'game_reward',
-                                    reason: `Tied study challenge in ${session.category}`,
-                                    metadata: { sessionId: session._id },
+                                    reason: `Tied study challenge in ${fresh.category}`,
+                                    metadata: { sessionId: fresh._id },
                                 });
                             }
                         }
@@ -693,36 +700,36 @@ class StudyBuddyService {
                     catch (e) {
                         logger_1.default.warn('Failed to award challenge points:', e);
                     }
-                    // Track competition points for study buddy
+                    // Track competition points
                     try {
                         const { Clan: ClanModel } = await Promise.resolve().then(() => __importStar(require('../models/Clan')));
                         if (winnerId) {
                             const winnerClan = await ClanModel.findOne({ 'members.user': winnerId }).select('_id');
                             if (winnerClan) {
                                 const compService = (await Promise.resolve().then(() => __importStar(require('./clanCompetition.service')))).default;
-                                await compService.recordCompetitionPoints(winnerId, winnerClan._id.toString(), session.creatorScore || 10, 'study');
+                                await compService.recordCompetitionPoints(winnerId, winnerClan._id.toString(), fresh.creatorScore || 10, 'study');
                             }
                         }
                     }
                     catch (e) {
                         logger_1.default.warn('Competition study tracking error:', e);
                     }
-                    // Notify both players of results
+                    // Notify both players
                     try {
                         const { User } = await Promise.resolve().then(() => __importStar(require('../models')));
                         const notifService = (await Promise.resolve().then(() => __importStar(require('./notification.service')))).default;
-                        const creatorUser = await User.findById(session.creator).select('firstName');
-                        const opponentUser = await User.findById(session.opponent).select('firstName');
+                        const creatorUser = await User.findById(fresh.creator).select('firstName');
+                        const opponentUser = await User.findById(fresh.opponent).select('firstName');
                         const resultMsg = winnerId
-                            ? `${winnerId === session.creator.toString() ? creatorUser?.firstName : opponentUser?.firstName} won!`
+                            ? `${winnerId === fresh.creator.toString() ? creatorUser?.firstName : opponentUser?.firstName} won!`
                             : "It's a tie!";
-                        for (const uid of [session.creator.toString(), session.opponent?.toString()].filter(Boolean)) {
+                        for (const uid of [fresh.creator.toString(), fresh.opponent?.toString()].filter(Boolean)) {
                             await notifService.createNotification({
                                 user: uid,
                                 type: 'system',
                                 title: `Study Challenge Complete!`,
-                                body: `${session.category} challenge between ${creatorUser?.firstName} & ${opponentUser?.firstName} — ${resultMsg} (${session.creatorScore} vs ${session.opponentScore})`,
-                                data: { type: 'study_result', sessionId: session._id.toString() },
+                                body: `${fresh.category} challenge between ${creatorUser?.firstName} & ${opponentUser?.firstName} — ${resultMsg} (${fresh.creatorScore} vs ${fresh.opponentScore})`,
+                                data: { type: 'study_result', sessionId: fresh._id.toString() },
                             });
                         }
                     }
@@ -730,6 +737,7 @@ class StudyBuddyService {
                         logger_1.default.warn('Study result notification error:', e);
                     }
                 }
+                return completed || fresh;
             }
             else {
                 // One player done, notify the other
@@ -752,8 +760,7 @@ class StudyBuddyService {
                     logger_1.default.warn('Study turn notification error:', e);
                 }
             }
-            await session.save();
-            return session;
+            return fresh;
         }
         catch (error) {
             logger_1.default.error('Submit answers error:', error);

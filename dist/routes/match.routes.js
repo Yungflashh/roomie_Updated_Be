@@ -62,6 +62,12 @@ router.post('/request/:targetUserId', verification_middleware_1.requireVerificat
  */
 router.post('/pass/:targetUserId', (0, validation_middleware_1.validate)(schemas_1.likeUserValidation), match_controller_1.default.passUser);
 /**
+ * @route   GET /api/v1/matches/compatibility-report/:userId
+ * @desc    Get detailed compatibility report between current user and target user
+ * @access  Private
+ */
+router.get('/compatibility-report/:userId', match_controller_1.default.getCompatibilityReport);
+/**
  * @route   GET /api/v1/matches
  * @desc    Get user's matches
  * @access  Private

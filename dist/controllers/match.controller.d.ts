@@ -51,6 +51,10 @@ declare class MatchController {
      * POST /api/v1/matches/listing-inquiry
      */
     listingInquiry(req: AuthRequest, res: Response): Promise<void>;
+    /**
+     * Get detailed compatibility report between current user and target user
+     */
+    getCompatibilityReport(req: AuthRequest, res: Response): Promise<void>;
 }
 declare const _default: MatchController;
 export default _default;

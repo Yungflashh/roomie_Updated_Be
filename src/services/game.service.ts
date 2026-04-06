@@ -847,18 +847,19 @@ class GameService {
     }
 
     // Deduct points for THIS player only (if not already deducted)
-    if (!(player as any).pointsDeducted) {
-      const pointsCost = session.pointsCost || game.pointsCost;
+    // Skip deduction for war games (pointsCost = 0)
+    const pointsCost = session.pointsCost || game?.pointsCost || 0;
+    if (!(player as any).pointsDeducted && pointsCost > 0) {
       try {
         await pointsService.deductPoints({
           userId,
           amount: pointsCost,
           type: 'game_entry',
-          reason: `Game entry: ${game.name}`,
-          metadata: { gameId: game._id, gameName: game.name, sessionId: session._id },
+          reason: `Game entry: ${game?.name || 'Game'}`,
+          metadata: { gameId: game?._id, gameName: game?.name, sessionId: session._id },
         });
         (player as any).pointsDeducted = true;
-        logger.info(`Deducted ${pointsCost} points from ${userId} for game ${game.name}`);
+        logger.info(`Deducted ${pointsCost} points from ${userId} for game ${game?.name}`);
       } catch (error: any) {
         throw new Error('Insufficient points to play this game');
       }
@@ -1588,6 +1589,52 @@ class GameService {
       pointsAwarded: session.pointsAwarded,
     });
 
+    // If this is a war game session, submit the result to the war match
+    if (session.warId && session.warMatchIndex !== undefined) {
+      try {
+        const clanService = (await import('./clan.service')).default;
+        const players = session.players;
+        const p1 = players[0];
+        const p2 = players[1];
+
+        if (p1 && p2) {
+          // Determine which player is challenger vs defender
+          const { ClanWar: ClanWarModel } = await import('../models/Clan');
+          const war = await ClanWarModel.findById(session.warId);
+          if (war && war.matches[session.warMatchIndex]) {
+            const warMatch = war.matches[session.warMatchIndex];
+            const p1Id = ((p1.user as any)?._id || p1.user).toString();
+            const p2Id = ((p2.user as any)?._id || p2.user).toString();
+
+            let challengerScore = 0;
+            let defenderScore = 0;
+
+            if (p1Id === warMatch.challengerPlayer.toString()) {
+              challengerScore = p1.score;
+              defenderScore = p2.score;
+            } else {
+              challengerScore = p2.score;
+              defenderScore = p1.score;
+            }
+
+            const winningSide: 'challenger' | 'defender' | 'tie' =
+              challengerScore > defenderScore ? 'challenger' :
+              defenderScore > challengerScore ? 'defender' : 'tie';
+
+            await clanService.submitWarMatchResult(
+              session.warId.toString(),
+              session.warMatchIndex,
+              winningSide,
+              { challengerScore, defenderScore }
+            );
+            logger.info(`War match result submitted: war ${session.warId} match ${session.warMatchIndex} → ${winningSide}`);
+          }
+        }
+      } catch (e) {
+        logger.warn('Failed to submit war match result from game session:', e);
+      }
+    }
+
     logger.info(`✅ Game session finalized with points awarded`);
   }
 
@@ -2092,6 +2139,139 @@ class GameService {
       options: shuffledOptions,
       correctAnswer: answer.toString(),
     };
+  }
+
+  // ============================================
+  // CLAN WAR GAME SESSIONS
+  // ============================================
+
+  private static WAR_GAME_MAP: Record<string, string> = {
+    speed_math: 'Speed Math',
+    word_scramble: 'Word Scramble',
+    emoji_guess: 'Emoji Guess',
+    memory_match: 'Memory Match',
+    trivia: 'Trivia Master',
+  };
+
+  /**
+   * Create a game session for a clan war match.
+   * If a session already exists for this war match, return it instead.
+   */
+  async createWarGameSession(
+    warId: string,
+    matchIndex: number,
+    userId: string
+  ): Promise<IGameSessionDocument> {
+    // Check for existing active session for this war match
+    const existing = await GameSession.findOne({
+      warId: new mongoose.Types.ObjectId(warId),
+      warMatchIndex: matchIndex,
+      status: { $in: ['pending', 'waiting', 'active'] },
+    }).populate('game', 'name description category thumbnail')
+      .populate('players.user', 'firstName lastName profilePhoto');
+
+    if (existing) {
+      // If this user isn't in the session yet, add them
+      const alreadyIn = existing.players.some(
+        p => ((p.user as any)?._id || p.user).toString() === userId
+      );
+      if (!alreadyIn) {
+        existing.players.push({
+          user: new mongoose.Types.ObjectId(userId),
+          score: 0,
+          rank: 0,
+          isReady: false,
+        } as any);
+        existing.status = 'active';
+        existing.startedAt = new Date();
+        await existing.save();
+        await existing.populate('players.user', 'firstName lastName profilePhoto');
+      }
+      return existing;
+    }
+
+    // Load the war to get match details
+    const { ClanWar } = await import('../models/Clan');
+    const war = await ClanWar.findById(warId);
+    if (!war) throw new Error('War not found.');
+    if (war.status !== 'in_progress') throw new Error('War is not in progress.');
+    if (matchIndex < 0 || matchIndex >= war.matches.length) throw new Error('Invalid match index.');
+
+    const warMatch = war.matches[matchIndex];
+    if (warMatch.status === 'completed') throw new Error('This match is already completed.');
+
+    // Verify the user is one of the players in this match
+    const isPlayer = warMatch.challengerPlayer.toString() === userId ||
+                     warMatch.defenderPlayer.toString() === userId;
+    if (!isPlayer) throw new Error('You are not assigned to this match.');
+
+    // Find or create the Game document for this game type
+    const gameName = GameService.WAR_GAME_MAP[warMatch.gameType] || 'Trivia Master';
+    let game = await Game.findOne({ name: gameName });
+    if (!game) {
+      game = await Game.create({
+        name: gameName,
+        description: `${gameName} - Clan War`,
+        category: 'war',
+        thumbnail: 'https://via.placeholder.com/200',
+        minPlayers: 2,
+        maxPlayers: 2,
+        difficulty: 'medium',
+        pointsReward: 0,
+        pointsCost: 0,
+        levelRequired: 1,
+        isActive: true,
+      });
+    }
+
+    // Generate game data
+    const gameData = this.generateGameData(gameName);
+
+    // Create the session with BOTH players
+    const opponentId = warMatch.challengerPlayer.toString() === userId
+      ? warMatch.defenderPlayer.toString()
+      : warMatch.challengerPlayer.toString();
+
+    const session = await GameSession.create({
+      game: game._id,
+      warId: new mongoose.Types.ObjectId(warId),
+      warMatchIndex: matchIndex,
+      players: [
+        { user: new mongoose.Types.ObjectId(userId), score: 0, rank: 0, isReady: false },
+        { user: new mongoose.Types.ObjectId(opponentId), score: 0, rank: 0, isReady: false },
+      ],
+      invitedBy: new mongoose.Types.ObjectId(userId),
+      mode: 'duel',
+      status: 'active',
+      startedAt: new Date(),
+      pointsCost: 0,
+      pointsAwarded: 0,
+      gameData,
+      expiresAt: new Date(Date.now() + 30 * 60 * 1000), // 30 min expiry
+    });
+
+    // Mark the war match as playing
+    warMatch.status = 'playing';
+    await war.save();
+
+    // Notify the opponent
+    try {
+      const currentUser = await User.findById(userId).select('firstName');
+      const notifService = (await import('./notification.service')).default;
+      await notifService.createNotification({
+        user: opponentId,
+        type: 'system',
+        title: 'War Match Started!',
+        body: `${currentUser?.firstName || 'Your opponent'} is ready to play ${gameName}! Tap to join the battle.`,
+        data: { type: 'war_game', warId, matchIndex: matchIndex.toString(), sessionId: session._id.toString() },
+      });
+    } catch (e) { logger.warn('War game notification error:', e); }
+
+    await session.populate('game', 'name description category thumbnail');
+    await session.populate('players.user', 'firstName lastName profilePhoto');
+
+    logger.info(`War game session created: ${session._id} for war ${warId} match ${matchIndex}`);
+    return session;
   }
 }
 

@@ -244,10 +244,12 @@ class AuthService {
       user.email
     );
 
-    // Update refresh token and last seen
-    user.refreshToken = refreshToken;
-    user.lastSeen = new Date();
-    await user.save();
+    // Update refresh token and last seen (use findOneAndUpdate to avoid VersionError
+    // since awardDailyLoginBonus may have modified the user document already)
+    await User.findOneAndUpdate(
+      { _id: user._id },
+      { $set: { refreshToken, lastSeen: new Date() } }
+    );
 
     // Fetch fresh user data for response
     const freshUser = await User.findById(user._id);

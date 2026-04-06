@@ -75,6 +75,12 @@ declare class GameService {
     private generateWordChainData;
     private scrambleWord;
     private generateMathQuestion;
+    private static WAR_GAME_MAP;
+    /**
+     * Create a game session for a clan war match.
+     * If a session already exists for this war match, return it instead.
+     */
+    createWarGameSession(warId: string, matchIndex: number, userId: string): Promise<IGameSessionDocument>;
 }
 declare const _default: GameService;
 export default _default;

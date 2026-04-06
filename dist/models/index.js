@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.ClanWar = exports.Clan = exports.Review = exports.RentalAgreement = exports.ListingInquiry = exports.StudyQuestion = exports.Confession = exports.Event = exports.StudySession = exports.UserPoints = exports.RoommateGroup = exports.RoommateConnection = exports.SharedListing = exports.SharedExpense = exports.Chore = exports.Leaderboard = exports.Notification = exports.Transaction = exports.Challenge = exports.GameSession = exports.Game = exports.MediaHash = exports.Message = exports.Match = exports.Property = exports.User = void 0;
+exports.ClanWar = exports.Clan = exports.RoommateReview = exports.Review = exports.RentalAgreement = exports.ListingInquiry = exports.StudyQuestion = exports.Confession = exports.Event = exports.StudySession = exports.UserPoints = exports.RoommateGroup = exports.RoommateConnection = exports.SharedListing = exports.SharedExpense = exports.Chore = exports.Leaderboard = exports.Notification = exports.Transaction = exports.Challenge = exports.GameSession = exports.Game = exports.MediaHash = exports.Message = exports.Match = exports.Property = exports.User = void 0;
 var User_1 = require("./User");
 Object.defineProperty(exports, "User", { enumerable: true, get: function () { return User_1.User; } });
 var Property_1 = require("./Property");
@@ -47,6 +47,7 @@ var RentalAgreement_1 = require("./RentalAgreement");
 Object.defineProperty(exports, "RentalAgreement", { enumerable: true, get: function () { return RentalAgreement_1.RentalAgreement; } });
 var Review_1 = require("./Review");
 Object.defineProperty(exports, "Review", { enumerable: true, get: function () { return Review_1.Review; } });
+Object.defineProperty(exports, "RoommateReview", { enumerable: true, get: function () { return Review_1.RoommateReview; } });
 var Clan_1 = require("./Clan");
 Object.defineProperty(exports, "Clan", { enumerable: true, get: function () { return Clan_1.Clan; } });
 Object.defineProperty(exports, "ClanWar", { enumerable: true, get: function () { return Clan_1.ClanWar; } });

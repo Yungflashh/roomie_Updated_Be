@@ -123,6 +123,10 @@ declare class ClanService {
      */
     respondToWar(clanId: string, warId: string, accept: boolean): Promise<IClanWarDocument>;
     /**
+     * Cancel a war. Costs treasury points unless the clan has an active War Shield.
+     */
+    cancelWar(clanId: string, warId: string, userId: string): Promise<IClanWarDocument>;
+    /**
      * Assign players from a clan to war matchups.
      */
     assignWarPlayers(clanId: string, warId: string, playerIds: string[]): Promise<IClanWarDocument>;
