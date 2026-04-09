@@ -287,24 +287,7 @@ class WeeklyChallengeService {
             }
             catch { }
         }
-        // Also send FCM push notifications
-        try {
-            const admin = require('firebase-admin');
-            const tokens = users.filter(u => u.fcmToken).map(u => u.fcmToken);
-            if (tokens.length > 0) {
-                // Send in batches of 500
-                for (let i = 0; i < tokens.length; i += 500) {
-                    const batch = tokens.slice(i, i + 500);
-                    await admin.messaging().sendEachForMulticast({
-                        tokens: batch,
-                        notification: { title: data.title, body: data.body },
-                    }).catch((err) => logger_1.default.error('FCM batch error:', err));
-                }
-            }
-        }
-        catch (err) {
-            logger_1.default.error('FCM push error:', err);
-        }
+        // Push notifications are now sent automatically by notificationService.createNotification()
         logger_1.default.info(`Broadcast notification sent to ${sent} users: ${data.title}`);
         return sent;
     }

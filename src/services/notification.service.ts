@@ -1,6 +1,7 @@
 // src/services/notification.service.ts
 import { Notification, INotificationDocument, User } from '../models';
 import { emitNotification, emitUnreadUpdate } from '../config/socket.config';
+import pushService from './push.service';
 import logger from '../utils/logger';
 
 interface CreateNotificationData {
@@ -18,7 +19,7 @@ class NotificationService {
    */
   async createNotification(data: CreateNotificationData): Promise<INotificationDocument> {
     const notification = await Notification.create(data);
-    
+
     logger.info(`Notification created for user ${data.user}: ${data.type}`);
 
     // Emit real-time notification via WebSocket
@@ -28,6 +29,22 @@ class NotificationService {
     } catch (socketError) {
       logger.warn('Socket emit failed (user may be offline):', socketError);
     }
+
+    // Send push notification (non-blocking — don't await)
+    const channelId = data.type === 'message' ? 'messages'
+      : ['match', 'request', 'request_accepted', 'like'].includes(data.type) ? 'matches'
+      : 'default';
+
+    pushService.sendToUser({
+      userId: data.user,
+      notificationId: notification._id.toString(),
+      title: data.title,
+      body: data.body,
+      data: { type: data.type, ...data.data },
+      channelId,
+    }).catch((err) => {
+      logger.warn('Push notification failed (non-critical):', err);
+    });
 
     return notification;
   }

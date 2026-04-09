@@ -39,6 +39,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 // src/services/notification.service.ts
 const models_1 = require("../models");
 const socket_config_1 = require("../config/socket.config");
+const push_service_1 = __importDefault(require("./push.service"));
 const logger_1 = __importDefault(require("../utils/logger"));
 class NotificationService {
     /**
@@ -55,6 +56,20 @@ class NotificationService {
         catch (socketError) {
             logger_1.default.warn('Socket emit failed (user may be offline):', socketError);
         }
+        // Send push notification (non-blocking — don't await)
+        const channelId = data.type === 'message' ? 'messages'
+            : ['match', 'request', 'request_accepted', 'like'].includes(data.type) ? 'matches'
+                : 'default';
+        push_service_1.default.sendToUser({
+            userId: data.user,
+            notificationId: notification._id.toString(),
+            title: data.title,
+            body: data.body,
+            data: { type: data.type, ...data.data },
+            channelId,
+        }).catch((err) => {
+            logger_1.default.warn('Push notification failed (non-critical):', err);
+        });
         return notification;
     }
     /**

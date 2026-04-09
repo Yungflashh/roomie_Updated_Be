@@ -574,6 +574,90 @@ router.post('/notifications/send', async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 });
+// Notification history (admin)
+router.get('/notifications/history', async (req, res) => {
+    try {
+        const { Notification } = await Promise.resolve().then(() => __importStar(require('../models')));
+        const { page = 1, limit = 20, type } = req.query;
+        const query = {};
+        if (type && type !== 'all')
+            query.type = type;
+        const [notifications, total] = await Promise.all([
+            Notification.find(query)
+                .populate('user', 'firstName lastName email profilePhoto')
+                .sort({ createdAt: -1 })
+                .skip((Number(page) - 1) * Number(limit))
+                .limit(Number(limit))
+                .lean(),
+            Notification.countDocuments(query),
+        ]);
+        const stats = await Notification.aggregate([
+            { $group: { _id: null, total: { $sum: 1 }, sent: { $sum: { $cond: ['$sent', 1, 0] } }, read: { $sum: { $cond: ['$read', 1, 0] } } } },
+        ]);
+        res.json({
+            success: true,
+            data: {
+                notifications,
+                pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / Number(limit)) },
+                stats: stats[0] || { total: 0, sent: 0, read: 0 },
+            },
+        });
+    }
+    catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+// Send notification to a segment of users (admin)
+router.post('/notifications/segment', async (req, res) => {
+    try {
+        const notificationService = (await Promise.resolve().then(() => __importStar(require('../services/notification.service')))).default;
+        const { User } = await Promise.resolve().then(() => __importStar(require('../models')));
+        const { title, body, type, segment } = req.body;
+        if (!title || !body || !segment) {
+            res.status(400).json({ success: false, message: 'title, body, and segment required' });
+            return;
+        }
+        // Build query based on segment
+        const query = { isActive: true };
+        switch (segment) {
+            case 'verified':
+                query.verified = true;
+                break;
+            case 'unverified':
+                query.verified = { $ne: true };
+                break;
+            case 'premium':
+                query['subscription.plan'] = { $in: ['premium', 'pro'] };
+                break;
+            case 'with_matches': break; // all active users — matches checked differently
+            case 'inactive_7d':
+                query.lastActive = { $lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) };
+                break;
+            case 'inactive_30d':
+                query.lastActive = { $lt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) };
+                break;
+            default: break; // 'all' — no filter
+        }
+        const users = await User.find(query).select('_id').lean();
+        let sent = 0;
+        for (const user of users) {
+            try {
+                await notificationService.createNotification({
+                    user: user._id.toString(),
+                    type: type || 'system',
+                    title,
+                    body,
+                });
+                sent++;
+            }
+            catch { }
+        }
+        res.json({ success: true, message: `Notification sent to ${sent} users`, data: { sent, segment } });
+    }
+    catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
 // Game management routes
 router.get('/games', admin_controller_1.default.getGames);
 router.get('/games/sessions', admin_controller_1.default.getGameSessions);
