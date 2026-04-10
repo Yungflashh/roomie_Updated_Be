@@ -67,6 +67,7 @@ const premium_routes_1 = __importDefault(require("./premium.routes"));
 const ai_routes_1 = __importDefault(require("./ai.routes"));
 const clan_routes_1 = __importDefault(require("./clan.routes"));
 const cosmetic_routes_1 = __importDefault(require("./cosmetic.routes"));
+const movingOut_routes_1 = __importDefault(require("./movingOut.routes"));
 // weeklyChallengeRoutes consolidated into challengeRoutes
 // import weeklyChallengeRoutes from './weeklyChallenge.routes';
 const router = (0, express_1.Router)();
@@ -102,6 +103,7 @@ router.use('/premium', premium_routes_1.default);
 router.use('/ai', ai_routes_1.default);
 router.use('/clans', clan_routes_1.default);
 router.use('/cosmetics', cosmetic_routes_1.default);
+router.use('/moving-out', movingOut_routes_1.default);
 const activity_routes_1 = __importDefault(require("./activity.routes"));
 router.use('/activity', activity_routes_1.default);
 const clanCompetition_routes_1 = __importDefault(require("./clanCompetition.routes"));
@@ -123,6 +125,19 @@ router.post('/paystack/webhook', async (req, res) => {
             const { Transaction } = await Promise.resolve().then(() => __importStar(require('../models')));
             const { User } = await Promise.resolve().then(() => __importStar(require('../models')));
             const logger = (await Promise.resolve().then(() => __importStar(require('../utils/logger')))).default;
+            // Handle Moving Out deal payments — identified by reference prefix
+            if (reference.startsWith('ROOMIE_MVO_')) {
+                try {
+                    const movingOutService = (await Promise.resolve().then(() => __importStar(require('../services/movingOut.service')))).default;
+                    await movingOutService.handlePaymentSuccess(reference);
+                    logger.info(`Webhook: Moving Out deal payment processed — ref: ${reference}`);
+                }
+                catch (e) {
+                    logger.error(`Webhook: Failed to process moving out payment ${reference}:`, e);
+                }
+                res.status(200).json({ received: true });
+                return;
+            }
             const transaction = await Transaction.findOne({ providerReference: reference });
             if (transaction && transaction.status === 'pending') {
                 transaction.status = 'completed';

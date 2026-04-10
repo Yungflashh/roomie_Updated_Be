@@ -29,6 +29,7 @@ import premiumRoutes from './premium.routes';
 import aiRoutes from './ai.routes';
 import clanRoutes from './clan.routes';
 import cosmeticRoutes from './cosmetic.routes';
+import movingOutRoutes from './movingOut.routes';
 // weeklyChallengeRoutes consolidated into challengeRoutes
 // import weeklyChallengeRoutes from './weeklyChallenge.routes';
 
@@ -71,6 +72,7 @@ router.use('/premium', premiumRoutes);
 router.use('/ai', aiRoutes);
 router.use('/clans', clanRoutes);
 router.use('/cosmetics', cosmeticRoutes);
+router.use('/moving-out', movingOutRoutes);
 import activityRoutes from './activity.routes';
 router.use('/activity', activityRoutes);
 import clanCompetitionRoutes from './clanCompetition.routes';
@@ -99,6 +101,19 @@ router.post('/paystack/webhook', async (req, res) => {
       const { Transaction } = await import('../models');
       const { User } = await import('../models');
       const logger = (await import('../utils/logger')).default;
+
+      // Handle Moving Out deal payments — identified by reference prefix
+      if (reference.startsWith('ROOMIE_MVO_')) {
+        try {
+          const movingOutService = (await import('../services/movingOut.service')).default;
+          await movingOutService.handlePaymentSuccess(reference);
+          logger.info(`Webhook: Moving Out deal payment processed — ref: ${reference}`);
+        } catch (e: any) {
+          logger.error(`Webhook: Failed to process moving out payment ${reference}:`, e);
+        }
+        res.status(200).json({ received: true });
+        return;
+      }
 
       const transaction = await Transaction.findOne({ providerReference: reference });
       if (transaction && transaction.status === 'pending') {

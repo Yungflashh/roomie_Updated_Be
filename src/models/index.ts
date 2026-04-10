@@ -21,3 +21,5 @@ export { ListingInquiry, IListingInquiryDocument } from './ListingInquiry';
 export { RentalAgreement, IRentalAgreementDocument } from './RentalAgreement';
 export { Review, IReviewDocument, RoommateReview, IRoommateReviewDocument, IRoommateReviewCategories } from './Review';
 export { Clan, ClanWar, IClanDocument, IClanWarDocument } from './Clan';
+export { MovingOutListing, IMovingOutListingDocument } from './MovingOutListing';
+export { MoveOutDeal, IMoveOutDealDocument, DealStatus } from './MoveOutDeal';
