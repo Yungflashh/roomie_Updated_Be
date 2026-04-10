@@ -23,13 +23,15 @@ class PushService {
    */
   async sendToUser(payload: PushPayload): Promise<boolean> {
     try {
+      logger.info(`🔔 [PUSH] Attempting to send to user ${payload.userId}: ${payload.title}`);
       const user = await User.findById(payload.userId).select('fcmToken').lean();
       if (!user?.fcmToken) {
-        logger.debug(`No push token for user ${payload.userId}, skipping push`);
+        logger.warn(`🔔 [PUSH] ❌ No push token for user ${payload.userId}, skipping push`);
         return false;
       }
 
       const token = user.fcmToken;
+      logger.info(`🔔 [PUSH] Found token: ${token.substring(0, 30)}...`);
 
       // Validate it's a valid Expo push token
       if (!Expo.isExpoPushToken(token)) {

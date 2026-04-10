@@ -168,14 +168,25 @@ class AuthController {
         try {
             const userId = req.user?.userId;
             const { fcmToken } = req.body;
+            logger_1.default.info(`🔔 [FCM] Token update request from user ${userId}`);
+            logger_1.default.info(`🔔 [FCM] Token received: ${fcmToken ? fcmToken.substring(0, 30) + '...' : '(empty)'}`);
+            if (fcmToken === undefined) {
+                logger_1.default.warn('🔔 [FCM] No fcmToken in request body');
+                res.status(400).json({
+                    success: false,
+                    message: 'fcmToken is required in request body',
+                });
+                return;
+            }
             await auth_service_1.default.updateFcmToken(userId, fcmToken);
+            logger_1.default.info(`🔔 [FCM] ✅ Token saved for user ${userId}`);
             res.status(200).json({
                 success: true,
                 message: 'FCM token updated',
             });
         }
         catch (error) {
-            logger_1.default.error('Update FCM token error:', error);
+            logger_1.default.error('🔔 [FCM] ❌ Update FCM token error:', error);
             res.status(500).json({
                 success: false,
                 message: 'Failed to update FCM token',
