@@ -284,20 +284,31 @@ const initializeSocket = (server) => {
     return io;
 };
 exports.initializeSocket = initializeSocket;
-// Broadcast presence update to relevant users (respects privacy settings)
+// Broadcast presence update only to matched users (respects privacy settings)
 const broadcastPresenceUpdate = async (userId, isOnlineStatus) => {
     try {
         const user = await models_1.User.findById(userId).select('privacySettings').lean();
         const showOnline = user?.privacySettings?.showOnlineStatus !== false;
         const showLastSeen = user?.privacySettings?.showLastSeen !== false;
-        io?.emit('presence:update', {
+        // Only notify users who are matched with this user, not everyone
+        const matches = await models_1.Match.find({
+            $or: [{ user1: userId }, { user2: userId }],
+            status: 'active',
+        }).select('user1 user2').lean();
+        const payload = {
             userId,
             isOnline: showOnline ? isOnlineStatus : false,
             lastSeen: showLastSeen ? new Date().toISOString() : null,
-        });
+        };
+        for (const match of matches) {
+            const otherUserId = match.user1.toString() === userId
+                ? match.user2.toString()
+                : match.user1.toString();
+            io?.to(`user:${otherUserId}`).emit('presence:update', payload);
+        }
     }
     catch {
-        io?.emit('presence:update', { userId, isOnline: false, lastSeen: null });
+        // Non-critical — skip on error
     }
 };
 // Emit to specific user's room

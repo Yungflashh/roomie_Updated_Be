@@ -13,6 +13,10 @@ import { generalLimiter } from './middleware/rateLimiter';
 const createApp = (): Application => {
   const app = express();
 
+  // Trust the first proxy (e.g. Render, Railway, Nginx)
+  // Required for express-rate-limit to correctly read client IPs from X-Forwarded-For
+  app.set('trust proxy', 1);
+
   // Security middleware
   app.use(helmet());
 

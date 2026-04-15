@@ -15,6 +15,9 @@ const logger_1 = __importDefault(require("./utils/logger"));
 const rateLimiter_1 = require("./middleware/rateLimiter");
 const createApp = () => {
     const app = (0, express_1.default)();
+    // Trust the first proxy (e.g. Render, Railway, Nginx)
+    // Required for express-rate-limit to correctly read client IPs from X-Forwarded-For
+    app.set('trust proxy', 1);
     // Security middleware
     app.use((0, helmet_1.default)());
     // CORS configuration
