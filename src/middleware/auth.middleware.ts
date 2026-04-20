@@ -3,6 +3,10 @@ import { AuthRequest } from '../types';
 import { verifyAccessToken } from '../utils/jwt';
 import logger from '../utils/logger';
 
+/**
+ * Verifies the Bearer access token on every protected route.
+ * Also checks the user's moderation status and auto-lifts expired suspensions/bans.
+ */
 export const authenticate = async (
   req: AuthRequest,
   res: Response,
@@ -24,7 +28,6 @@ export const authenticate = async (
     try {
       const decoded = verifyAccessToken(token);
 
-      // Check account moderation status (skip for admin tokens)
       if (!decoded.isAdmin) {
         const { User } = await import('../models');
         const user = await User.findById(decoded.userId).select('moderation isActive').lean();
@@ -56,7 +59,6 @@ export const authenticate = async (
             });
             return;
           }
-          // Auto-lift expired suspensions/bans
           if (mod?.status !== 'active' && mod?.status !== 'restricted') {
             if (!mod?.suspendedUntil || new Date(mod.suspendedUntil) <= new Date()) {
               await User.findByIdAndUpdate(decoded.userId, { 'moderation.status': 'active' });
@@ -80,7 +82,7 @@ export const authenticate = async (
         });
         return;
       }
-      
+
       res.status(401).json({
         success: false,
         message: 'Invalid access token',
@@ -96,6 +98,10 @@ export const authenticate = async (
   }
 };
 
+/**
+ * Attempts to populate `req.user` from a Bearer token if present,
+ * but does not reject the request if the token is absent or invalid.
+ */
 export const optionalAuthenticate = async (
   req: AuthRequest,
   res: Response,
@@ -106,7 +112,6 @@ export const optionalAuthenticate = async (
 
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.substring(7);
-      
       try {
         const decoded = verifyAccessToken(token);
         req.user = {
@@ -114,8 +119,8 @@ export const optionalAuthenticate = async (
           email: decoded.email,
           role: decoded.role,
         };
-      } catch (error) {
-        // Ignore errors for optional auth
+      } catch {
+        // Token invalid — continue without user context
       }
     }
 

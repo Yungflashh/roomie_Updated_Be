@@ -313,10 +313,10 @@ class RoommateService {
         let content = '';
         switch (type) {
             case 'request':
-                content = `${sender?.firstName} sent a roommate connection request 🏠`;
+                content = `${sender?.firstName} sent a roommate connection request`;
                 break;
             case 'accepted':
-                content = `${sender?.firstName} accepted the roommate connection! 🎉 Roommate features are now unlocked.`;
+                content = `${sender?.firstName} accepted the roommate connection. Roommate features are now unlocked.`;
                 break;
             case 'declined':
                 content = `${sender?.firstName} declined the roommate connection request.`;

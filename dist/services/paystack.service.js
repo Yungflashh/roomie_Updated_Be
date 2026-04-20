@@ -7,7 +7,7 @@ const axios_1 = __importDefault(require("axios"));
 const logger_1 = __importDefault(require("../utils/logger"));
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || '';
 if (!PAYSTACK_SECRET) {
-    console.warn('⚠️  WARNING: PAYSTACK_SECRET_KEY is not set. Payment features will not work.');
+    console.warn('WARNING: PAYSTACK_SECRET_KEY is not set. Payment features will not work.');
 }
 const PAYSTACK_BASE = 'https://api.paystack.co';
 const paystackApi = axios_1.default.create({

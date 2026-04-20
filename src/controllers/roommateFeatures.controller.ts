@@ -239,7 +239,7 @@ class RoommateFeaturesController {
 
       res.status(200).json({
         success: true,
-        message: approved ? 'Chore verified! Points awarded. 🎉' : 'Chore disputed.',
+        message: approved ? 'Chore verified. Points awarded.' : 'Chore disputed.',
         data: { chore },
       });
     } catch (error: any) {

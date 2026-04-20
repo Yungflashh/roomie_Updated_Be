@@ -1,4 +1,3 @@
-// src/config/social-auth.config.ts
 export const socialAuthConfig = {
   facebook: {
     clientID: process.env.FACEBOOK_APP_ID || '',
@@ -26,8 +25,11 @@ export const socialAuthConfig = {
   },
 };
 
-// Deep link URL for mobile app
-export const getMobileRedirectUrl = (platform: string, status: 'success' | 'error', data?: any) => {
+/**
+ * Build the deep-link redirect URL used after a mobile OAuth callback.
+ * The mobile app must register the scheme defined by APP_SCHEME (default: "roomie").
+ */
+export const getMobileRedirectUrl = (platform: string, status: 'success' | 'error', data?: any): string => {
   const appScheme = process.env.APP_SCHEME || 'roomie';
   const params = new URLSearchParams({
     platform,

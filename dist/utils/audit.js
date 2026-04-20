@@ -2,6 +2,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.logAudit = logAudit;
 const AuditLog_1 = require("../models/AuditLog");
+/**
+ * Persists an audit log entry. Failures are swallowed so that audit errors
+ * never interrupt the calling request.
+ */
 async function logAudit(options) {
     try {
         await AuditLog_1.AuditLog.create({
@@ -20,7 +24,6 @@ async function logAudit(options) {
         });
     }
     catch (err) {
-        // Don't let audit failures break the app
         console.error('Audit log error:', err);
     }
 }

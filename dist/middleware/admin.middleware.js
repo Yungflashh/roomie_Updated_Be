@@ -5,6 +5,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.authenticateAdmin = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+/**
+ * Verifies the request carries a valid admin JWT.
+ * Admin tokens are issued by the admin login flow and contain `adminId` in the payload.
+ */
 const authenticateAdmin = (req, res, next) => {
     try {
         const token = req.headers.authorization?.replace('Bearer ', '');

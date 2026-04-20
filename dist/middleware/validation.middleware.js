@@ -2,9 +2,12 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.validate = void 0;
 const express_validator_1 = require("express-validator");
+/**
+ * Runs an array of express-validator chains and short-circuits with a 400
+ * if any field fails. Errors are returned as `{ field, message }` pairs.
+ */
 const validate = (validations) => {
     return async (req, res, next) => {
-        // Run all validations
         await Promise.all(validations.map((validation) => validation.run(req)));
         const errors = (0, express_validator_1.validationResult)(req);
         if (errors.isEmpty()) {

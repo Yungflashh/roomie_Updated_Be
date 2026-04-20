@@ -3,7 +3,7 @@ import logger from '../utils/logger';
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || '';
 if (!PAYSTACK_SECRET) {
-  console.warn('⚠️  WARNING: PAYSTACK_SECRET_KEY is not set. Payment features will not work.');
+  console.warn('WARNING: PAYSTACK_SECRET_KEY is not set. Payment features will not work.');
 }
 const PAYSTACK_BASE = 'https://api.paystack.co';
 

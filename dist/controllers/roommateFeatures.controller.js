@@ -185,7 +185,7 @@ class RoommateFeaturesController {
             const chore = await roommateFeatures_service_1.default.verifyChore(choreId, userId, approved === true);
             res.status(200).json({
                 success: true,
-                message: approved ? 'Chore verified! Points awarded. 🎉' : 'Chore disputed.',
+                message: approved ? 'Chore verified. Points awarded.' : 'Chore disputed.',
                 data: { chore },
             });
         }

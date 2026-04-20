@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import logger from '../utils/logger';
 
+/** Operational error with an explicit HTTP status code. */
 export class AppError extends Error {
   statusCode: number;
   isOperational: boolean;
@@ -9,11 +10,11 @@ export class AppError extends Error {
     super(message);
     this.statusCode = statusCode;
     this.isOperational = true;
-
     Error.captureStackTrace(this, this.constructor);
   }
 }
 
+/** Central error handler. Must be registered last in the middleware chain. */
 export const errorHandler = (
   err: Error | AppError,
   req: Request,
@@ -28,7 +29,6 @@ export const errorHandler = (
     message = err.message;
   }
 
-  // Log error
   logger.error('Error:', {
     message: err.message,
     stack: err.stack,
@@ -36,7 +36,6 @@ export const errorHandler = (
     method: req.method,
   });
 
-  // Send response
   res.status(statusCode).json({
     success: false,
     message,
@@ -44,12 +43,12 @@ export const errorHandler = (
   });
 };
 
+/** Catches requests that matched no route. Socket.IO paths are forwarded. */
 export const notFoundHandler = (
   req: Request,
   res: Response,
   next: NextFunction
 ): void => {
-  // Skip Socket.IO requests - let Socket.IO handle them
   if (req.path.startsWith('/socket.io')) {
     return next();
   }

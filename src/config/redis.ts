@@ -12,25 +12,26 @@ const redisConfig = {
   maxRetriesPerRequest: 3,
 };
 
-// Main Redis client
 export const redisClient = new Redis(redisConfig);
-
-// Separate client for pub/sub
 export const redisPubClient = new Redis(redisConfig);
 export const redisSubClient = new Redis(redisConfig);
 
 redisClient.on('connect', () => {
-  logger.info('✅ Redis connected successfully');
+  logger.info('Redis connected');
 });
 
 redisClient.on('error', (err) => {
-  logger.error('❌ Redis connection error:', err);
+  logger.error('Redis connection error:', err);
 });
 
 redisClient.on('reconnecting', () => {
   logger.warn('Redis reconnecting...');
 });
 
+/**
+ * Verify the Redis connection by issuing a PING.
+ * Throws if Redis is unreachable.
+ */
 export const initRedis = async (): Promise<void> => {
   try {
     await redisClient.ping();

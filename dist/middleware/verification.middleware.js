@@ -2,6 +2,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.requireVerification = requireVerification;
 const models_1 = require("../models");
+/**
+ * Requires the authenticated user to have completed identity verification
+ * before accessing the route. Returns 403 with code VERIFICATION_REQUIRED otherwise.
+ */
 async function requireVerification(req, res, next) {
     try {
         const userId = req.user?.userId;

@@ -18,6 +18,10 @@ interface AuditOptions {
     status?: 'success' | 'failure';
     req?: Request;
 }
+/**
+ * Persists an audit log entry. Failures are swallowed so that audit errors
+ * never interrupt the calling request.
+ */
 export declare function logAudit(options: AuditOptions): Promise<void>;
 export {};
 //# sourceMappingURL=audit.d.ts.map

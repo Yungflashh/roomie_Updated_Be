@@ -1,4 +1,3 @@
-// src/services/game.service.ts - COMPLETE VERSION WITH ALL GAMES
 import mongoose from 'mongoose';
 import { Game, GameSession, User, Match, Message, IGameDocument, IGameSessionDocument } from '../models';
 import pointsService from './points.service';
@@ -1635,7 +1634,7 @@ class GameService {
       }
     }
 
-    logger.info(`✅ Game session finalized with points awarded`);
+    logger.info('Game session finalized with points awarded');
   }
 
   async completeGameSession(sessionId: string): Promise<IGameSessionDocument> {

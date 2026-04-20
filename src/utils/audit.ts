@@ -13,6 +13,10 @@ interface AuditOptions {
   req?: Request;
 }
 
+/**
+ * Persists an audit log entry. Failures are swallowed so that audit errors
+ * never interrupt the calling request.
+ */
 export async function logAudit(options: AuditOptions): Promise<void> {
   try {
     await AuditLog.create({
@@ -30,7 +34,6 @@ export async function logAudit(options: AuditOptions): Promise<void> {
       status: options.status || 'success',
     });
   } catch (err) {
-    // Don't let audit failures break the app
     console.error('Audit log error:', err);
   }
 }

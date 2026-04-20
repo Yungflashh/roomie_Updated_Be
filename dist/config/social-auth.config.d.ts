@@ -24,5 +24,9 @@ export declare const socialAuthConfig: {
         scope: string[];
     };
 };
+/**
+ * Build the deep-link redirect URL used after a mobile OAuth callback.
+ * The mobile app must register the scheme defined by APP_SCHEME (default: "roomie").
+ */
 export declare const getMobileRedirectUrl: (platform: string, status: "success" | "error", data?: any) => string;
 //# sourceMappingURL=social-auth.config.d.ts.map

@@ -159,7 +159,7 @@ class WeeklyChallengeService {
                     await notification_service_1.default.createNotification({
                         user: userId,
                         type: 'achievement',
-                        title: 'Challenge Completed! 🎉',
+                        title: 'Challenge Completed',
                         body: `You completed "${challenge.title}" and earned ${challenge.pointsReward} points!`,
                         data: { challengeId: challenge._id.toString() },
                     });

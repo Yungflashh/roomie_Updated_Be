@@ -14,7 +14,7 @@ const connectDB = async () => {
             serverSelectionTimeoutMS: 10000,
             socketTimeoutMS: 60000,
         });
-        logger_1.default.info('✅ MongoDB connected successfully');
+        logger_1.default.info('MongoDB connected');
         mongoose_1.default.connection.on('error', (err) => {
             logger_1.default.error('MongoDB connection error:', err);
         });
@@ -26,7 +26,7 @@ const connectDB = async () => {
         });
     }
     catch (error) {
-        logger_1.default.error('❌ MongoDB connection failed:', error);
+        logger_1.default.error('MongoDB connection failed:', error);
         process.exit(1);
     }
 };

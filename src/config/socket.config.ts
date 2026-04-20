@@ -1,4 +1,3 @@
-// src/config/socket.config.ts (Scaled for 500-1000 concurrent users)
 import { Server, Socket } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import jwt from 'jsonwebtoken';
@@ -9,12 +8,9 @@ import { redisClient, redisPubClient, redisSubClient } from './redis';
 
 let io: Server | null = null;
 
-// Redis key prefixes for online tracking
 const ONLINE_PREFIX = 'online:';
 const GAME_SESSION_PREFIX = 'gamesession:';
-const ONLINE_TTL = 300; // 5 minutes TTL as safety net
-
-// ==================== REDIS-BASED ONLINE TRACKING ====================
+const ONLINE_TTL = 300; // 5-minute safety TTL; refreshed on every connection event
 
 const addOnlineUser = async (userId: string, socketId: string): Promise<void> => {
   await redisClient.sadd(`${ONLINE_PREFIX}${userId}`, socketId);
@@ -26,7 +22,7 @@ const removeOnlineSocket = async (userId: string, socketId: string): Promise<boo
   const remaining = await redisClient.scard(`${ONLINE_PREFIX}${userId}`);
   if (remaining === 0) {
     await redisClient.del(`${ONLINE_PREFIX}${userId}`);
-    return true; // user fully offline
+    return true;
   }
   return false;
 };
@@ -48,8 +44,11 @@ const removeGameSession = async (userId: string): Promise<void> => {
   await redisClient.del(`${GAME_SESSION_PREFIX}${userId}`);
 };
 
-// ==================== SOCKET INITIALIZATION ====================
-
+/**
+ * Attaches Socket.IO to an existing HTTP server, wires the Redis pub/sub adapter
+ * for multi-process support, and registers all event handlers.
+ * Returns the `Server` instance so callers can store it on `app` if needed.
+ */
 export const initializeSocket = (server: any): Server => {
   io = new Server(server, {
     cors: {
@@ -60,11 +59,9 @@ export const initializeSocket = (server: any): Server => {
     pingInterval: 25000,
   });
 
-  // Wire up Redis adapter for multi-process support
   io.adapter(createAdapter(redisPubClient, redisSubClient));
-  logger.info('Socket.IO Redis adapter connected');
+  logger.info('Socket.IO initialised with Redis adapter');
 
-  // Authentication middleware
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth.token;
@@ -99,28 +96,18 @@ export const initializeSocket = (server: any): Server => {
     const userId = socket.data.user._id;
     logger.info(`Socket connected: ${socket.id}, User: ${userId}`);
 
-    // Track online status in Redis
     addOnlineUser(userId, socket.id);
-
-    // Join personal room
     socket.join(`user:${userId}`);
-
-    // Broadcast online status
     broadcastPresenceUpdate(userId, true);
 
-    // Handle joining chat room
     socket.on('join:chat', (matchId: string) => {
       socket.join(`chat:${matchId}`);
-      logger.info(`User ${userId} joined chat: ${matchId}`);
     });
 
-    // Handle leaving chat room
     socket.on('leave:chat', (matchId: string) => {
       socket.leave(`chat:${matchId}`);
-      logger.info(`User ${userId} left chat: ${matchId}`);
     });
 
-    // Handle typing indicators
     socket.on('typing:start', (data: { matchId: string; receiverId: string; activity?: string }) => {
       emitToUser(data.receiverId, 'typing:start', {
         matchId: data.matchId,
@@ -137,7 +124,6 @@ export const initializeSocket = (server: any): Server => {
       });
     });
 
-    // Handle message read
     socket.on('message:read', (data: { matchId: string; messageIds: string[] }) => {
       socket.to(`chat:${data.matchId}`).emit('message:read', {
         matchId: data.matchId,
@@ -147,7 +133,6 @@ export const initializeSocket = (server: any): Server => {
       });
     });
 
-    // Handle presence check (respects privacy settings)
     socket.on('presence:check', async (userIds: string[]) => {
       try {
         const users = await User.find({ _id: { $in: userIds } }).select('privacySettings lastSeen').lean();
@@ -170,21 +155,13 @@ export const initializeSocket = (server: any): Server => {
       }
     });
 
-    // Handle presence ping
     socket.on('presence:ping', () => {
       socket.emit('presence:pong', { timestamp: Date.now() });
     });
 
-    // ==================== GAME EVENTS ====================
-
-    // Join game session room
     socket.on('game:join', (sessionId: string) => {
       socket.join(`game:${sessionId}`);
       setGameSession(userId, sessionId);
-      logger.info(`User ${userId} (${socket.data.user.firstName}) joined game session room: game:${sessionId}`);
-
-      const roomSize = io?.sockets.adapter.rooms.get(`game:${sessionId}`)?.size || 0;
-      logger.info(`Room game:${sessionId} now has ${roomSize} socket(s)`);
 
       socket.to(`game:${sessionId}`).emit('game:player_joined', {
         sessionId,
@@ -192,11 +169,9 @@ export const initializeSocket = (server: any): Server => {
       });
     });
 
-    // Leave game session room
     socket.on('game:leave', (sessionId: string) => {
       socket.leave(`game:${sessionId}`);
       removeGameSession(userId);
-      logger.info(`User ${userId} left game session: ${sessionId}`);
 
       socket.to(`game:${sessionId}`).emit('game:player_left', {
         sessionId,
@@ -204,13 +179,10 @@ export const initializeSocket = (server: any): Server => {
       });
     });
 
-    // Player ready - with auto-start logic
+    // Uses an atomic findOneAndUpdate to prevent race conditions when multiple
+    // players mark themselves ready simultaneously.
     socket.on('game:ready', async (sessionId: string) => {
       try {
-        logger.info(`Player ${userId} clicked ready for session ${sessionId}`);
-
-        const roomSize = io?.sockets.adapter.rooms.get(`game:${sessionId}`)?.size || 0;
-
         const beforeSession = await GameSession.findById(sessionId);
         if (!beforeSession) {
           socket.emit('game:error', { message: 'Game session not found' });
@@ -223,15 +195,12 @@ export const initializeSocket = (server: any): Server => {
           return;
         }
 
-        // Use findOneAndUpdate with atomic operation to prevent race conditions
         const session = await GameSession.findOneAndUpdate(
           {
             _id: sessionId,
             'players.user': new mongoose.Types.ObjectId(userId),
           },
-          {
-            $set: { 'players.$.isReady': true }
-          },
+          { $set: { 'players.$.isReady': true } },
           { new: true }
         )
           .populate('game')
@@ -242,22 +211,17 @@ export const initializeSocket = (server: any): Server => {
           return;
         }
 
-        // Broadcast ready state to all players in the game room
         io?.to(`game:${sessionId}`).emit('game:player_ready', {
           sessionId,
           userId,
           user: socket.data.user,
         });
 
-        // Check if all players are ready
         const allReady = session.players.every(p => (p as any).isReady === true);
         const game = session.game as any;
         const minPlayers = game?.minPlayers || 2;
 
         if (allReady && session.players.length >= minPlayers && session.status === 'waiting') {
-          logger.info(`All players ready, starting game ${sessionId}`);
-
-          // Auto-start the game with atomic update
           const updatedSession = await GameSession.findOneAndUpdate(
             { _id: sessionId, status: 'waiting' },
             {
@@ -290,7 +254,6 @@ export const initializeSocket = (server: any): Server => {
       }
     });
 
-    // Submit answer (for trivia/quiz games)
     socket.on('game:answer', (data: { sessionId: string; questionIndex: number; answer: string; timeSpent: number }) => {
       socket.to(`game:${data.sessionId}`).emit('game:player_answered', {
         sessionId: data.sessionId,
@@ -299,7 +262,6 @@ export const initializeSocket = (server: any): Server => {
       });
     });
 
-    // Game action (generic for different game types)
     socket.on('game:action', (data: { sessionId: string; action: string; payload: any }) => {
       io?.to(`game:${data.sessionId}`).emit('game:action', {
         sessionId: data.sessionId,
@@ -310,7 +272,6 @@ export const initializeSocket = (server: any): Server => {
       });
     });
 
-    // Handle disconnect
     socket.on('disconnect', async (reason) => {
       logger.info(`Socket disconnected: ${socket.id}, User: ${userId}, Reason: ${reason}`);
 
@@ -318,7 +279,6 @@ export const initializeSocket = (server: any): Server => {
       if (fullyOffline) {
         broadcastPresenceUpdate(userId, false);
 
-        // Handle game session disconnect
         const sessionId = await getGameSession(userId);
         if (sessionId) {
           io?.to(`game:${sessionId}`).emit('game:player_disconnected', {
@@ -329,25 +289,26 @@ export const initializeSocket = (server: any): Server => {
         }
       }
 
-      // Always update lastSeen internally
+      // Update lastSeen regardless of whether the user has other open sockets.
       User.findByIdAndUpdate(userId, { lastSeen: new Date() }).catch((err) =>
         logger.error('Failed to update last seen:', err)
       );
     });
   });
 
-  logger.info('Socket.IO initialized with Redis adapter');
   return io;
 };
 
-// Broadcast presence update only to matched users (respects privacy settings)
+/**
+ * Emits a presence update only to users who have an active match with `userId`.
+ * Respects each user's `privacySettings.showOnlineStatus` and `showLastSeen` flags.
+ */
 const broadcastPresenceUpdate = async (userId: string, isOnlineStatus: boolean): Promise<void> => {
   try {
     const user = await User.findById(userId).select('privacySettings').lean();
     const showOnline = user?.privacySettings?.showOnlineStatus !== false;
     const showLastSeen = user?.privacySettings?.showLastSeen !== false;
 
-    // Only notify users who are matched with this user, not everyone
     const matches = await Match.find({
       $or: [{ user1: userId }, { user2: userId }],
       status: 'active',
@@ -370,22 +331,22 @@ const broadcastPresenceUpdate = async (userId: string, isOnlineStatus: boolean):
   }
 };
 
-// Emit to specific user's room
+/** Emits an event to a specific user's personal room. */
 export const emitToUser = (userId: string, event: string, data: any): void => {
   io?.to(`user:${userId}`).emit(event, data);
 };
 
-// Emit to chat room
+/** Emits an event to all sockets in a chat room. */
 export const emitToChat = (matchId: string, event: string, data: any): void => {
   io?.to(`chat:${matchId}`).emit(event, data);
 };
 
-// Emit to game session room
+/** Emits an event to all sockets in a game session room. */
 export const emitToGameSession = (sessionId: string, event: string, data: any): void => {
   io?.to(`game:${sessionId}`).emit(event, data);
 };
 
-// Emit new message - ONLY to receiver
+/** Delivers a new message event only to the receiver's personal room, not the sender. */
 export const emitNewMessage = (
   matchId: string,
   message: any,
@@ -398,58 +359,44 @@ export const emitNewMessage = (
   });
 };
 
-// Emit game invitation
-export const emitGameInvitation = (
-  invitedUserId: string,
-  invitation: any
-): void => {
+/** Delivers a game invitation to the invited user. */
+export const emitGameInvitation = (invitedUserId: string, invitation: any): void => {
   emitToUser(invitedUserId, 'game:invitation', invitation);
 };
 
-// Emit game invitation response
-export const emitGameInvitationResponse = (
-  userId: string,
-  response: any
-): void => {
+/** Notifies the inviting user of the invited user's accept/decline response. */
+export const emitGameInvitationResponse = (userId: string, response: any): void => {
   emitToUser(userId, 'game:invitation_response', response);
 };
 
-// Emit game started
 export const emitGameStarted = (sessionId: string, gameData: any): void => {
   emitToGameSession(sessionId, 'game:started', gameData);
 };
 
-// Emit game ended
 export const emitGameEnded = (sessionId: string, results: any): void => {
   emitToGameSession(sessionId, 'game:ended', results);
 };
 
-// Emit score update
 export const emitScoreUpdate = (sessionId: string, scores: any): void => {
   emitToGameSession(sessionId, 'game:score_update', scores);
 };
 
-// Emit next question (for trivia games)
 export const emitNextQuestion = (sessionId: string, questionData: any): void => {
   emitToGameSession(sessionId, 'game:next_question', questionData);
 };
 
-// Emit unread counts update
 export const emitUnreadUpdate = (userId: string, counts: any): void => {
   emitToUser(userId, 'unread:update', counts);
 };
 
-// Emit match notification
 export const emitMatchNotification = (userId: string, match: any): void => {
   emitToUser(userId, 'match:new', match);
 };
 
-// Emit match request notification
 export const emitMatchRequest = (userId: string, request: any): void => {
   emitToUser(userId, 'match:request', request);
 };
 
-// Emit notification
 export const emitNotification = (userId: string, notification: any): void => {
   emitToUser(userId, 'notification:new', notification);
 };
@@ -459,17 +406,17 @@ export const emitNewMatch = (user1Id: string, user2Id: string, matchData: any): 
   emitToUser(user2Id, 'match:new', matchData);
 };
 
-// Check if user is online (async now - uses Redis)
+/** Returns whether the given user currently has at least one connected socket. */
 export const isUserOnline = async (userId: string): Promise<boolean> => {
   return isOnline(userId);
 };
 
-// Emit clan war update to all members of a clan
+/** Broadcasts a clan war event to each member's personal room. */
 export const emitClanWarUpdate = (clanMemberUserIds: string[], event: string, data: any): void => {
   for (const uid of clanMemberUserIds) {
     emitToUser(uid, event, data);
   }
 };
 
-// Get IO instance
+/** Returns the active Socket.IO server instance, or null before initialisation. */
 export const getIO = (): Server | null => io;

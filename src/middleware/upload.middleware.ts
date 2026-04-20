@@ -9,15 +9,10 @@ import logger from '../utils/logger';
 import fs from 'fs';
 import { MediaHash } from '../models';
 import { cloudinary } from '../config/cloudinary.config';
-import { mediaService } from '../services/media.service'
+import { mediaService } from '../services/media.service';
 
 const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE_MB || '50') * 1024 * 1024;
 
-
-;
-;
-
-// Temporary local storage (files will be uploaded to Cloudinary after processing)
 const tempStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const tempDir = path.join(__dirname, '../../temp');
@@ -35,7 +30,7 @@ const tempStorage = multer.diskStorage({
 export const upload = multer({
   storage: tempStorage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB
+    fileSize: 10 * 1024 * 1024,
   },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('audio/') || file.mimetype.startsWith('video/')) {
@@ -46,12 +41,17 @@ export const upload = multer({
   },
 });
 
-// Upload to Cloudinary middleware
+/**
+ * Uploads the multer-processed file to Cloudinary.
+ * Images are routed through `mediaService` for optimisation; audio and video are
+ * uploaded as raw/video resources respectively. Attaches the result as
+ * `req.cloudinaryResult` and removes the local temp file.
+ */
 export const uploadToCloudinary = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     if (!req.file) {
       return next();
@@ -62,11 +62,8 @@ export const uploadToCloudinary = async (
     const isVideo = req.file.mimetype.startsWith('video/');
     const folder = `roomie/users/${userId}${isAudio ? '/audio' : isVideo ? '/video' : ''}`;
 
-    logger.info(`Uploading to Cloudinary for user: ${userId}, type: ${req.file.mimetype}`);
-
     let result;
     if (isAudio || isVideo) {
-      // Upload audio/video as raw resource (no image transformations)
       const uploadResult = await cloudinary.uploader.upload(req.file.path, {
         folder,
         resource_type: isVideo ? 'video' : 'raw',
@@ -86,37 +83,32 @@ export const uploadToCloudinary = async (
       );
     }
 
-    // Attach Cloudinary result to request
     (req as any).cloudinaryResult = result;
 
-    // Delete temp file
     if (fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
 
-    logger.info(`Uploaded to Cloudinary: ${result.url}`);
     next();
   } catch (error) {
     logger.error('Cloudinary upload error:', error);
-    
-    // Clean up temp file on error
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
-    
     next(error);
   }
 };
 
-// Set upload type (for folder organization)
+/**
+ * Sets `req.uploadType` so downstream storage middleware can route files to
+ * the correct subdirectory (e.g. "profiles", "videos").
+ */
 export const setUploadType = (type: string) => {
   return (req: Request, res: Response, next: NextFunction) => {
     (req as any).uploadType = type;
-    logger.info(`setUploadType called with type: ${type}`);
     next();
   };
 };
-
 
 const ensureUploadDirs = () => {
   const dirs = ['profiles', 'temp', 'videos'];
@@ -124,39 +116,28 @@ const ensureUploadDirs = () => {
     const fullPath = path.join(process.cwd(), 'public', 'uploads', dir);
     if (!fs.existsSync(fullPath)) {
       fs.mkdirSync(fullPath, { recursive: true });
-      logger.info(`Created directory: ${fullPath}`);
     }
   });
 };
 
-// Initialize directories
 ensureUploadDirs();
 
-// Storage configuration
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadType = (req as any).uploadType || 'temp';
     const dir = path.join(process.cwd(), 'public', 'uploads', uploadType);
-    
-    // Ensure directory exists
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    
-    logger.info(`Upload destination: ${dir}`);
     cb(null, dir);
   },
   filename: (req, file, cb) => {
     const uniqueName = `${uuidv4()}${path.extname(file.originalname)}`;
-    logger.info(`Generated filename: ${uniqueName}`);
     cb(null, uniqueName);
   },
 });
 
-// File filter
 const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  logger.info(`File filter - mimetype: ${file.mimetype}, originalname: ${file.originalname}`);
-  
   const allowedMimes = [
     'image/jpeg',
     'image/jpg',
@@ -174,32 +155,27 @@ const fileFilter = (req: Request, file: Express.Multer.File, cb: multer.FileFilt
   }
 };
 
-
-
-
-
+/**
+ * Computes a perceptual hash of the uploaded image and rejects it with 409
+ * if an identical image from a different user already exists. Same-user
+ * re-uploads are always permitted. Attaches `req.mediaHash` for later storage.
+ */
 export const checkImageDuplicate = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-) => {
+): Promise<void> => {
   try {
     if (!req.file) {
       return next();
     }
 
-    // Skip duplicate check for non-image files (audio, video)
     if (!req.file.mimetype.startsWith('image/')) {
       return next();
     }
 
-    logger.info('checkImageDuplicate middleware called');
-    logger.info(`File received: ${req.file.filename}`);
-
     const userId = req.user?.userId;
     const fileBuffer = fs.readFileSync(req.file.path);
-
-    logger.info(`Checking duplicate for user: ${userId}, type: image`);
 
     const result = await duplicateDetectionService.checkDuplicate(
       userId!,
@@ -207,56 +183,49 @@ export const checkImageDuplicate = async (
       'image'
     );
 
-    // Store hash for later saving
     (req as any).mediaHash = result.hash;
 
-    // If same user re-uploading, allow it
     if (result.isSameUser) {
-      logger.info('Same user re-uploading their own image - allowing');
       return next();
     }
 
-    // If duplicate from different user, reject
     if (result.isDuplicate) {
-      logger.warn(`Duplicate detected from different user: ${JSON.stringify(result.existingFile)}`);
-      
-      // Clean up uploaded file
       if (fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
       }
 
-      return res.status(409).json({
+      res.status(409).json({
         success: false,
         message: 'This image appears to be a duplicate',
         similarity: result.similarity,
       });
+      return;
     }
 
-    logger.info('No duplicate found, proceeding...');
     next();
   } catch (error) {
     logger.error('Duplicate check error:', error);
-    // Don't block upload on duplicate check errors
+    // Do not block the upload on a hash check failure
     next();
   }
 };
-// Middleware to check for duplicate videos
+
+/**
+ * Same as `checkImageDuplicate` but for video files. Returns 409 on detection
+ * and cleans up the local temp file before responding.
+ */
 export const checkVideoDuplicate = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
-    logger.info('checkVideoDuplicate middleware called');
-    
     if (!req.file) {
-      logger.info('No file found in request, skipping duplicate check');
       return next();
     }
 
     const userId = req.user?.userId;
     if (!userId) {
-      logger.error('User not authenticated');
       res.status(401).json({
         success: false,
         message: 'User not authenticated',
@@ -266,8 +235,6 @@ export const checkVideoDuplicate = async (
 
     const fileBuffer = fs.readFileSync(req.file.path);
 
-    logger.info(`Checking video duplicate for user: ${userId}`);
-
     const duplicateCheck = await duplicateDetectionService.checkDuplicate(
       userId,
       fileBuffer,
@@ -276,8 +243,6 @@ export const checkVideoDuplicate = async (
     );
 
     if (duplicateCheck.isDuplicate) {
-      logger.warn(`Duplicate video detected: ${duplicateCheck.existingFile}`);
-      
       if (fs.existsSync(req.file.path)) {
         fs.unlinkSync(req.file.path);
       }
@@ -291,13 +256,11 @@ export const checkVideoDuplicate = async (
       return;
     }
 
-    logger.info('No duplicate video found, proceeding...');
-    
     (req as any).mediaHash = duplicateCheck.hash;
     next();
   } catch (error) {
     logger.error('Error checking video duplicate:', error);
-    
+
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
@@ -310,27 +273,20 @@ export const checkVideoDuplicate = async (
   }
 };
 
-// Process and optimize images
+/**
+ * Resizes images to a maximum of 1920x1920 and re-encodes them as
+ * progressive JPEG at 85% quality. The original temp file is replaced
+ * with the optimised output in-place.
+ */
 export const processImage = async (
   req: Request,
   res: Response,
   next: NextFunction
 ): Promise<void> => {
   try {
-    logger.info('processImage middleware called');
-    
-    if (!req.file) {
-      logger.info('No file found in request, skipping image processing');
+    if (!req.file || !req.file.mimetype.startsWith('image/')) {
       return next();
     }
-
-    // Skip if not an image
-    if (!req.file.mimetype.startsWith('image/')) {
-      logger.info('File is not an image, skipping processing');
-      return next();
-    }
-
-    logger.info(`Processing image: ${req.file.filename}`);
 
     const outputPath = req.file.path.replace(path.extname(req.file.path), '_optimized.jpg');
 
@@ -345,28 +301,21 @@ export const processImage = async (
       })
       .toFile(outputPath);
 
-    logger.info(`Image optimized: ${outputPath}`);
-
-    // Delete original and use optimized
     if (fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
-    
+
     req.file.path = outputPath;
     req.file.filename = path.basename(outputPath);
 
-    logger.info('Image processing complete');
     next();
   } catch (error) {
     logger.error('Error processing image:', error);
-    
-    // Clean up files on error
-    if (req.file) {
-      if (fs.existsSync(req.file.path)) {
-        fs.unlinkSync(req.file.path);
-      }
+
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Error processing image',

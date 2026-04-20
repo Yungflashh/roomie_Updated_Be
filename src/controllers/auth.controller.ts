@@ -1,4 +1,3 @@
-// src/controllers/auth.controller.ts - UPDATED WITH DAILY REWARDS
 import { Response } from 'express';
 import { AuthRequest } from '../types';
 import authService from '../services/auth.service';
@@ -8,7 +7,8 @@ import { logAudit } from '../utils/audit';
 
 class AuthController {
   /**
-   * Register new user
+   * @route   POST /api/v1/auth/register
+   * @access  Public
    */
   async register(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -17,7 +17,7 @@ class AuthController {
       await logAudit({
         actor: { id: result.user?.id?.toString() || '', name: `${result.user?.firstName || ''} ${result.user?.lastName || ''}`, email: result.user?.email || '' },
         actorType: 'user', action: 'register', category: 'auth',
-        details: 'New user registered', req
+        details: 'New user registered', req,
       });
 
       res.status(201).json({
@@ -27,7 +27,6 @@ class AuthController {
       });
     } catch (error: any) {
       logger.error('Registration error:', error);
-      
       const statusCode = error.message.includes('already exists') ? 400 : 500;
       res.status(statusCode).json({
         success: false,
@@ -37,29 +36,26 @@ class AuthController {
   }
 
   /**
-   * Login user
+   * @route   POST /api/v1/auth/login
+   * @access  Public
    */
   async login(req: AuthRequest, res: Response): Promise<void> {
     try {
       const result = await authService.login(req.body);
 
-      // Build message based on daily reward
       let message = 'Login successful';
       if (result.dailyReward?.awarded) {
         const points = result.dailyReward.points || 0;
         const streak = result.dailyReward.streak || 1;
-        
-        if (streak >= 7) {
-          message = `Welcome back! +${points} points 🔥 ${streak} day streak!`;
-        } else {
-          message = `Welcome back! +${points} points`;
-        }
+        message = streak >= 7
+          ? `Welcome back! +${points} points — ${streak} day streak`
+          : `Welcome back! +${points} points`;
       }
 
       await logAudit({
         actor: { id: result.user?.id?.toString() || '', name: `${result.user?.firstName || ''} ${result.user?.lastName || ''}`, email: result.user?.email || '' },
         actorType: 'user', action: 'login', category: 'auth',
-        details: 'User logged in', req
+        details: 'User logged in', req,
       });
 
       res.status(200).json({
@@ -74,10 +70,8 @@ class AuthController {
       });
     } catch (error: any) {
       logger.error('Login error:', error);
-      
-      const statusCode = error.message.includes('Invalid') ? 401 : 
+      const statusCode = error.message.includes('Invalid') ? 401 :
                          error.message.includes('deactivated') ? 403 : 500;
-      
       res.status(statusCode).json({
         success: false,
         message: error.message || 'Login failed',
@@ -86,12 +80,12 @@ class AuthController {
   }
 
   /**
-   * Refresh access token
+   * @route   POST /api/v1/auth/refresh-token
+   * @access  Public
    */
   async refreshToken(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { refreshToken } = req.body;
-
       const decoded = verifyRefreshToken(refreshToken);
       const tokens = await authService.refreshAccessToken(decoded.userId, refreshToken);
 
@@ -109,7 +103,8 @@ class AuthController {
   }
 
   /**
-   * Logout user
+   * @route   POST /api/v1/auth/logout
+   * @access  Private
    */
   async logout(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -132,7 +127,8 @@ class AuthController {
   }
 
   /**
-   * Get current user profile
+   * @route   GET /api/v1/auth/me
+   * @access  Private
    */
   async getMe(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -153,7 +149,8 @@ class AuthController {
   }
 
   /**
-   * Get profile completion status
+   * @route   GET /api/v1/auth/profile-completion
+   * @access  Private
    */
   async getProfileCompletion(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -174,18 +171,15 @@ class AuthController {
   }
 
   /**
-   * Update FCM token
+   * @route   PUT /api/v1/auth/fcm-token
+   * @access  Private
    */
   async updateFcmToken(req: AuthRequest, res: Response): Promise<void> {
     try {
       const userId = req.user?.userId!;
       const { fcmToken } = req.body;
 
-      logger.info(`🔔 [FCM] Token update request from user ${userId}`);
-      logger.info(`🔔 [FCM] Token received: ${fcmToken ? fcmToken.substring(0, 30) + '...' : '(empty)'}`);
-
       if (fcmToken === undefined) {
-        logger.warn('🔔 [FCM] No fcmToken in request body');
         res.status(400).json({
           success: false,
           message: 'fcmToken is required in request body',
@@ -195,14 +189,12 @@ class AuthController {
 
       await authService.updateFcmToken(userId, fcmToken);
 
-      logger.info(`🔔 [FCM] ✅ Token saved for user ${userId}`);
-
       res.status(200).json({
         success: true,
         message: 'FCM token updated',
       });
     } catch (error) {
-      logger.error('🔔 [FCM] ❌ Update FCM token error:', error);
+      logger.error('Update FCM token error:', error);
       res.status(500).json({
         success: false,
         message: 'Failed to update FCM token',
@@ -211,7 +203,8 @@ class AuthController {
   }
 
   /**
-   * Change password
+   * @route   PUT /api/v1/auth/change-password
+   * @access  Private
    */
   async changePassword(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -226,7 +219,6 @@ class AuthController {
       });
     } catch (error: any) {
       logger.error('Change password error:', error);
-      
       const statusCode = error.message.includes('incorrect') ? 401 : 500;
       res.status(statusCode).json({
         success: false,
@@ -236,7 +228,8 @@ class AuthController {
   }
 
   /**
-   * Delete account
+   * @route   DELETE /api/v1/auth/account
+   * @access  Private
    */
   async deleteAccount(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -251,7 +244,6 @@ class AuthController {
       });
     } catch (error: any) {
       logger.error('Delete account error:', error);
-      
       const statusCode = error.message.includes('incorrect') ? 401 : 500;
       res.status(statusCode).json({
         success: false,
@@ -261,8 +253,8 @@ class AuthController {
   }
 
   /**
-   * Get user's login streak
-   * GET /api/auth/streak
+   * @route   GET /api/v1/auth/streak
+   * @access  Private
    */
   async getStreak(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -281,9 +273,10 @@ class AuthController {
       });
     }
   }
+
   /**
-   * Send email verification code
-   * POST /api/v1/auth/send-verification
+   * @route   POST /api/v1/auth/send-verification
+   * @access  Private
    */
   async sendVerification(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -305,8 +298,8 @@ class AuthController {
   }
 
   /**
-   * Verify email with OTP code
-   * POST /api/v1/auth/verify-email
+   * @route   POST /api/v1/auth/verify-email
+   * @access  Private
    */
   async verifyEmail(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -335,8 +328,8 @@ class AuthController {
   }
 
   /**
-   * Forgot password — send reset code
-   * POST /api/v1/auth/forgot-password
+   * @route   POST /api/v1/auth/forgot-password
+   * @access  Public
    */
   async forgotPassword(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -349,7 +342,7 @@ class AuthController {
 
       await authService.forgotPassword(email);
 
-      // Always return success to avoid email enumeration
+      // Always return success to prevent email enumeration
       res.status(200).json({
         success: true,
         message: 'If an account exists with that email, a reset code has been sent',
@@ -364,8 +357,8 @@ class AuthController {
   }
 
   /**
-   * Verify reset code
-   * POST /api/v1/auth/verify-reset-code
+   * @route   POST /api/v1/auth/verify-reset-code
+   * @access  Public
    */
   async verifyResetCode(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -394,8 +387,8 @@ class AuthController {
   }
 
   /**
-   * Reset password with token
-   * POST /api/v1/auth/reset-password
+   * @route   POST /api/v1/auth/reset-password
+   * @access  Public
    */
   async resetPassword(req: AuthRequest, res: Response): Promise<void> {
     try {
@@ -418,6 +411,82 @@ class AuthController {
       res.status(statusCode).json({
         success: false,
         message: error.message || 'Password reset failed',
+      });
+    }
+  }
+
+  /**
+   * @route   POST /api/v1/auth/google
+   * @access  Public
+   * @body    { idToken: string }
+   */
+  async googleLogin(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { idToken } = req.body;
+
+      if (!idToken) {
+        res.status(400).json({ success: false, message: 'idToken is required' });
+        return;
+      }
+
+      const result = await authService.loginWithGoogle(idToken);
+
+      res.status(200).json({
+        success: true,
+        message: 'Google login successful',
+        data: {
+          user: result.user,
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
+        },
+      });
+    } catch (error: any) {
+      logger.error('Google login error:', error);
+      const statusCode = error.message.includes('audience') || error.message.includes('Invalid') ? 401 : 500;
+      res.status(statusCode).json({
+        success: false,
+        message: error.message || 'Google login failed',
+      });
+    }
+  }
+
+  /**
+   * @route   POST /api/v1/auth/apple
+   * @access  Public
+   * @body    { identityToken, authorizationCode, email?, firstName?, lastName? }
+   */
+  async appleLogin(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const { identityToken, authorizationCode, email, firstName, lastName } = req.body;
+
+      if (!identityToken || !authorizationCode) {
+        res.status(400).json({ success: false, message: 'identityToken and authorizationCode are required' });
+        return;
+      }
+
+      const result = await authService.loginWithApple({
+        identityToken,
+        authorizationCode,
+        email,
+        firstName,
+        lastName,
+      });
+
+      res.status(200).json({
+        success: true,
+        message: 'Apple login successful',
+        data: {
+          user: result.user,
+          accessToken: result.accessToken,
+          refreshToken: result.refreshToken,
+        },
+      });
+    } catch (error: any) {
+      logger.error('Apple login error:', error);
+      const statusCode = error.message.includes('Invalid') || error.message.includes('key') ? 401 : 500;
+      res.status(statusCode).json({
+        success: false,
+        message: error.message || 'Apple login failed',
       });
     }
   }

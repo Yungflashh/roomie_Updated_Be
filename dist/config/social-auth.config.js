@@ -1,7 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getMobileRedirectUrl = exports.socialAuthConfig = void 0;
-// src/config/social-auth.config.ts
 exports.socialAuthConfig = {
     facebook: {
         clientID: process.env.FACEBOOK_APP_ID || '',
@@ -28,7 +27,10 @@ exports.socialAuthConfig = {
         scope: ['r_emailaddress', 'r_liteprofile'],
     },
 };
-// Deep link URL for mobile app
+/**
+ * Build the deep-link redirect URL used after a mobile OAuth callback.
+ * The mobile app must register the scheme defined by APP_SCHEME (default: "roomie").
+ */
 const getMobileRedirectUrl = (platform, status, data) => {
     const appScheme = process.env.APP_SCHEME || 'roomie';
     const params = new URLSearchParams({

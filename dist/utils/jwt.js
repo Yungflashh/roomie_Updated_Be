@@ -12,22 +12,27 @@ if (!JWT_SECRET || !JWT_REFRESH_SECRET) {
 }
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '15m';
 const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
+/** Signs a short-lived access token. */
 const generateAccessToken = (payload) => {
     return jsonwebtoken_1.default.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 };
 exports.generateAccessToken = generateAccessToken;
+/** Signs a long-lived refresh token used to rotate access tokens. */
 const generateRefreshToken = (payload) => {
     return jsonwebtoken_1.default.sign(payload, JWT_REFRESH_SECRET, { expiresIn: JWT_REFRESH_EXPIRES_IN });
 };
 exports.generateRefreshToken = generateRefreshToken;
+/** Verifies and decodes an access token. Throws on invalid or expired tokens. */
 const verifyAccessToken = (token) => {
     return jsonwebtoken_1.default.verify(token, JWT_SECRET);
 };
 exports.verifyAccessToken = verifyAccessToken;
+/** Verifies and decodes a refresh token. Throws on invalid or expired tokens. */
 const verifyRefreshToken = (token) => {
     return jsonwebtoken_1.default.verify(token, JWT_REFRESH_SECRET);
 };
 exports.verifyRefreshToken = verifyRefreshToken;
+/** Generates a new access/refresh token pair for the given user. */
 const generateTokenPair = (userId, email) => {
     const payload = { userId, email };
     return {

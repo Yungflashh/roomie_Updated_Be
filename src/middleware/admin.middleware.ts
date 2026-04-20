@@ -1,8 +1,11 @@
-// src/middleware/admin.middleware.ts
 import { Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { AuthRequest } from '../types';
 
+/**
+ * Verifies the request carries a valid admin JWT.
+ * Admin tokens are issued by the admin login flow and contain `adminId` in the payload.
+ */
 export const authenticateAdmin = (
   req: AuthRequest,
   res: Response,

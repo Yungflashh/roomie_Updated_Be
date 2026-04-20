@@ -348,7 +348,7 @@ class MovingOutService {
       await notificationService.createNotification({
         user: deal.seeker.toString(),
         type: 'system',
-        title: '✅ Payment Received',
+        title: 'Payment Received',
         body: 'Your payment is safely in escrow. Confirm move-in to release funds to the outgoing tenant.',
         data: { dealId: deal._id.toString() },
       });
@@ -386,7 +386,7 @@ class MovingOutService {
       await notificationService.createNotification({
         user: deal.mover.toString(),
         type: 'system',
-        title: '🎉 Move-In Confirmed',
+        title: 'Move-In Confirmed',
         body: `Seeker confirmed move-in. Funds will be released in ${DISPUTE_WINDOW_HOURS} hours if no issues are raised.`,
         data: { dealId: deal._id.toString() },
       });
@@ -532,7 +532,7 @@ class MovingOutService {
       await notificationService.createNotification({
         user: otherPartyId.toString(),
         type: 'system',
-        title: '⚠️ Dispute Opened',
+        title: 'Dispute Opened',
         body: 'A dispute has been opened on your moving out deal. Our team will review.',
         data: { dealId: deal._id.toString() },
       });

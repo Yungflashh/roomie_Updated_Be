@@ -194,7 +194,7 @@ class NotificationService {
         await this.createNotification({
             user: toUserId,
             type: 'match',
-            title: "It's a Match! 🎉",
+            title: "It's a Match",
             body: `You and ${fromUser.firstName} are now connected!`,
             data: { userId: fromUserId, matchId },
             image: fromUser.profilePhoto,

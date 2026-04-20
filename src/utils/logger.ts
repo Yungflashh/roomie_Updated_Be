@@ -2,7 +2,6 @@ import winston from 'winston';
 import path from 'path';
 import fs from 'fs';
 
-// Create logs directory if it doesn't exist
 const logsDir = path.join(process.cwd(), 'logs');
 if (!fs.existsSync(logsDir)) {
   fs.mkdirSync(logsDir, { recursive: true });
@@ -18,15 +17,13 @@ const logger = winston.createLogger({
   ),
   defaultMeta: { service: 'roomie-backend' },
   transports: [
-    // Write all logs with importance level of `error` or less to `error.log`
-    new winston.transports.File({ 
-      filename: path.join(logsDir, 'error.log'), 
+    new winston.transports.File({
+      filename: path.join(logsDir, 'error.log'),
       level: 'error',
-      maxsize: 5242880, // 5MB
+      maxsize: 5242880,
       maxFiles: 5,
     }),
-    // Write all logs with importance level of `info` or less to `combined.log`
-    new winston.transports.File({ 
+    new winston.transports.File({
       filename: path.join(logsDir, 'combined.log'),
       maxsize: 5242880,
       maxFiles: 5,
@@ -34,7 +31,6 @@ const logger = winston.createLogger({
   ],
 });
 
-// If we're not in production, log to the console with colors
 if (process.env.NODE_ENV !== 'production') {
   logger.add(
     new winston.transports.Console({

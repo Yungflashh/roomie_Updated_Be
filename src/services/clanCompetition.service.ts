@@ -298,7 +298,7 @@ class ClanCompetitionService {
         await notificationService.createNotification({
           user: m.user.toString(),
           type: 'system',
-          title: `🎉 Clan [${clan.tag}] Won!`,
+          title: `Clan [${clan.tag}] Won`,
           body: `Your clan won ₦${totalPrize.toLocaleString()} in the monthly competition! Check the results.`,
           data: { type: 'competition_result', clanId },
         });

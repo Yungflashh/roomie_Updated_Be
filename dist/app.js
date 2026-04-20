@@ -13,26 +13,25 @@ const routes_1 = __importDefault(require("./routes"));
 const error_middleware_1 = require("./middleware/error.middleware");
 const logger_1 = __importDefault(require("./utils/logger"));
 const rateLimiter_1 = require("./middleware/rateLimiter");
+/**
+ * Builds and returns the configured Express application.
+ * Does not start listening — the caller is responsible for binding to a port.
+ */
 const createApp = () => {
     const app = (0, express_1.default)();
-    // Trust the first proxy (e.g. Render, Railway, Nginx)
-    // Required for express-rate-limit to correctly read client IPs from X-Forwarded-For
+    // Required for express-rate-limit to read the real client IP behind a proxy
+    // (Render, Railway, Nginx, etc.) via X-Forwarded-For.
     app.set('trust proxy', 1);
-    // Security middleware
     app.use((0, helmet_1.default)());
-    // CORS configuration
     const corsOptions = {
         origin: process.env.CLIENT_URL || '*',
         credentials: true,
         optionsSuccessStatus: 200,
     };
     app.use((0, cors_1.default)(corsOptions));
-    // Body parsing middleware
     app.use(express_1.default.json({ limit: '10mb' }));
     app.use(express_1.default.urlencoded({ extended: true, limit: '10mb' }));
-    // Compression middleware
     app.use((0, compression_1.default)());
-    // Request logging
     if (process.env.NODE_ENV === 'development') {
         app.use((0, morgan_1.default)('dev'));
     }
@@ -43,13 +42,9 @@ const createApp = () => {
             },
         }));
     }
-    // Apply general rate limiting to all API routes
     app.use('/api/', rateLimiter_1.generalLimiter);
-    // Static files
     app.use('/uploads', express_1.default.static(path_1.default.join(process.cwd(), 'public/uploads')));
-    // API routes
     app.use('/api/v1', routes_1.default);
-    // Root route
     app.get('/', (req, res) => {
         res.status(200).json({
             success: true,
@@ -69,9 +64,7 @@ const createApp = () => {
             },
         });
     });
-    // 404 handler
     app.use(error_middleware_1.notFoundHandler);
-    // Error handler (must be last)
     app.use(error_middleware_1.errorHandler);
     return app;
 };

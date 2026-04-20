@@ -92,7 +92,7 @@ class RoommateGroupController {
             const group = await roommateGroup_service_1.default.joinGroupByCode(userId, inviteCode);
             res.status(200).json({
                 success: true,
-                message: `Welcome to ${group.name}! 🎉`,
+                message: `Welcome to ${group.name}`,
                 data: { group },
             });
         }
@@ -158,7 +158,7 @@ class RoommateGroupController {
             if (accept && group) {
                 res.status(200).json({
                     success: true,
-                    message: `Welcome to ${group.name}! 🎉`,
+                    message: `Welcome to ${group.name}`,
                     data: { group },
                 });
             }

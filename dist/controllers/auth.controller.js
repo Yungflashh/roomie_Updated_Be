@@ -9,7 +9,8 @@ const logger_1 = __importDefault(require("../utils/logger"));
 const audit_1 = require("../utils/audit");
 class AuthController {
     /**
-     * Register new user
+     * @route   POST /api/v1/auth/register
+     * @access  Public
      */
     async register(req, res) {
         try {
@@ -17,7 +18,7 @@ class AuthController {
             await (0, audit_1.logAudit)({
                 actor: { id: result.user?.id?.toString() || '', name: `${result.user?.firstName || ''} ${result.user?.lastName || ''}`, email: result.user?.email || '' },
                 actorType: 'user', action: 'register', category: 'auth',
-                details: 'New user registered', req
+                details: 'New user registered', req,
             });
             res.status(201).json({
                 success: true,
@@ -35,27 +36,24 @@ class AuthController {
         }
     }
     /**
-     * Login user
+     * @route   POST /api/v1/auth/login
+     * @access  Public
      */
     async login(req, res) {
         try {
             const result = await auth_service_1.default.login(req.body);
-            // Build message based on daily reward
             let message = 'Login successful';
             if (result.dailyReward?.awarded) {
                 const points = result.dailyReward.points || 0;
                 const streak = result.dailyReward.streak || 1;
-                if (streak >= 7) {
-                    message = `Welcome back! +${points} points 🔥 ${streak} day streak!`;
-                }
-                else {
-                    message = `Welcome back! +${points} points`;
-                }
+                message = streak >= 7
+                    ? `Welcome back! +${points} points — ${streak} day streak`
+                    : `Welcome back! +${points} points`;
             }
             await (0, audit_1.logAudit)({
                 actor: { id: result.user?.id?.toString() || '', name: `${result.user?.firstName || ''} ${result.user?.lastName || ''}`, email: result.user?.email || '' },
                 actorType: 'user', action: 'login', category: 'auth',
-                details: 'User logged in', req
+                details: 'User logged in', req,
             });
             res.status(200).json({
                 success: true,
@@ -79,7 +77,8 @@ class AuthController {
         }
     }
     /**
-     * Refresh access token
+     * @route   POST /api/v1/auth/refresh-token
+     * @access  Public
      */
     async refreshToken(req, res) {
         try {
@@ -100,7 +99,8 @@ class AuthController {
         }
     }
     /**
-     * Logout user
+     * @route   POST /api/v1/auth/logout
+     * @access  Private
      */
     async logout(req, res) {
         try {
@@ -122,7 +122,8 @@ class AuthController {
         }
     }
     /**
-     * Get current user profile
+     * @route   GET /api/v1/auth/me
+     * @access  Private
      */
     async getMe(req, res) {
         try {
@@ -142,7 +143,8 @@ class AuthController {
         }
     }
     /**
-     * Get profile completion status
+     * @route   GET /api/v1/auth/profile-completion
+     * @access  Private
      */
     async getProfileCompletion(req, res) {
         try {
@@ -162,16 +164,14 @@ class AuthController {
         }
     }
     /**
-     * Update FCM token
+     * @route   PUT /api/v1/auth/fcm-token
+     * @access  Private
      */
     async updateFcmToken(req, res) {
         try {
             const userId = req.user?.userId;
             const { fcmToken } = req.body;
-            logger_1.default.info(`🔔 [FCM] Token update request from user ${userId}`);
-            logger_1.default.info(`🔔 [FCM] Token received: ${fcmToken ? fcmToken.substring(0, 30) + '...' : '(empty)'}`);
             if (fcmToken === undefined) {
-                logger_1.default.warn('🔔 [FCM] No fcmToken in request body');
                 res.status(400).json({
                     success: false,
                     message: 'fcmToken is required in request body',
@@ -179,14 +179,13 @@ class AuthController {
                 return;
             }
             await auth_service_1.default.updateFcmToken(userId, fcmToken);
-            logger_1.default.info(`🔔 [FCM] ✅ Token saved for user ${userId}`);
             res.status(200).json({
                 success: true,
                 message: 'FCM token updated',
             });
         }
         catch (error) {
-            logger_1.default.error('🔔 [FCM] ❌ Update FCM token error:', error);
+            logger_1.default.error('Update FCM token error:', error);
             res.status(500).json({
                 success: false,
                 message: 'Failed to update FCM token',
@@ -194,7 +193,8 @@ class AuthController {
         }
     }
     /**
-     * Change password
+     * @route   PUT /api/v1/auth/change-password
+     * @access  Private
      */
     async changePassword(req, res) {
         try {
@@ -216,7 +216,8 @@ class AuthController {
         }
     }
     /**
-     * Delete account
+     * @route   DELETE /api/v1/auth/account
+     * @access  Private
      */
     async deleteAccount(req, res) {
         try {
@@ -238,8 +239,8 @@ class AuthController {
         }
     }
     /**
-     * Get user's login streak
-     * GET /api/auth/streak
+     * @route   GET /api/v1/auth/streak
+     * @access  Private
      */
     async getStreak(req, res) {
         try {
@@ -259,8 +260,8 @@ class AuthController {
         }
     }
     /**
-     * Send email verification code
-     * POST /api/v1/auth/send-verification
+     * @route   POST /api/v1/auth/send-verification
+     * @access  Private
      */
     async sendVerification(req, res) {
         try {
@@ -281,8 +282,8 @@ class AuthController {
         }
     }
     /**
-     * Verify email with OTP code
-     * POST /api/v1/auth/verify-email
+     * @route   POST /api/v1/auth/verify-email
+     * @access  Private
      */
     async verifyEmail(req, res) {
         try {
@@ -308,8 +309,8 @@ class AuthController {
         }
     }
     /**
-     * Forgot password — send reset code
-     * POST /api/v1/auth/forgot-password
+     * @route   POST /api/v1/auth/forgot-password
+     * @access  Public
      */
     async forgotPassword(req, res) {
         try {
@@ -319,7 +320,7 @@ class AuthController {
                 return;
             }
             await auth_service_1.default.forgotPassword(email);
-            // Always return success to avoid email enumeration
+            // Always return success to prevent email enumeration
             res.status(200).json({
                 success: true,
                 message: 'If an account exists with that email, a reset code has been sent',
@@ -334,8 +335,8 @@ class AuthController {
         }
     }
     /**
-     * Verify reset code
-     * POST /api/v1/auth/verify-reset-code
+     * @route   POST /api/v1/auth/verify-reset-code
+     * @access  Public
      */
     async verifyResetCode(req, res) {
         try {
@@ -361,8 +362,8 @@ class AuthController {
         }
     }
     /**
-     * Reset password with token
-     * POST /api/v1/auth/reset-password
+     * @route   POST /api/v1/auth/reset-password
+     * @access  Public
      */
     async resetPassword(req, res) {
         try {
@@ -383,6 +384,76 @@ class AuthController {
             res.status(statusCode).json({
                 success: false,
                 message: error.message || 'Password reset failed',
+            });
+        }
+    }
+    /**
+     * @route   POST /api/v1/auth/google
+     * @access  Public
+     * @body    { idToken: string }
+     */
+    async googleLogin(req, res) {
+        try {
+            const { idToken } = req.body;
+            if (!idToken) {
+                res.status(400).json({ success: false, message: 'idToken is required' });
+                return;
+            }
+            const result = await auth_service_1.default.loginWithGoogle(idToken);
+            res.status(200).json({
+                success: true,
+                message: 'Google login successful',
+                data: {
+                    user: result.user,
+                    accessToken: result.accessToken,
+                    refreshToken: result.refreshToken,
+                },
+            });
+        }
+        catch (error) {
+            logger_1.default.error('Google login error:', error);
+            const statusCode = error.message.includes('audience') || error.message.includes('Invalid') ? 401 : 500;
+            res.status(statusCode).json({
+                success: false,
+                message: error.message || 'Google login failed',
+            });
+        }
+    }
+    /**
+     * @route   POST /api/v1/auth/apple
+     * @access  Public
+     * @body    { identityToken, authorizationCode, email?, firstName?, lastName? }
+     */
+    async appleLogin(req, res) {
+        try {
+            const { identityToken, authorizationCode, email, firstName, lastName } = req.body;
+            if (!identityToken || !authorizationCode) {
+                res.status(400).json({ success: false, message: 'identityToken and authorizationCode are required' });
+                return;
+            }
+            const result = await auth_service_1.default.loginWithApple({
+                identityToken,
+                authorizationCode,
+                email,
+                firstName,
+                lastName,
+            });
+            res.status(200).json({
+                success: true,
+                message: 'Apple login successful',
+                data: {
+                    user: result.user,
+                    accessToken: result.accessToken,
+                    refreshToken: result.refreshToken,
+                },
+            });
+        }
+        catch (error) {
+            logger_1.default.error('Apple login error:', error);
+            const statusCode = error.message.includes('Invalid') || error.message.includes('key') ? 401 : 500;
+            res.status(statusCode).json({
+                success: false,
+                message: error.message || 'Apple login failed',
             });
         }
     }

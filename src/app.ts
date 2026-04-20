@@ -9,18 +9,19 @@ import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import logger from './utils/logger';
 import { generalLimiter } from './middleware/rateLimiter';
 
-
+/**
+ * Builds and returns the configured Express application.
+ * Does not start listening — the caller is responsible for binding to a port.
+ */
 const createApp = (): Application => {
   const app = express();
 
-  // Trust the first proxy (e.g. Render, Railway, Nginx)
-  // Required for express-rate-limit to correctly read client IPs from X-Forwarded-For
+  // Required for express-rate-limit to read the real client IP behind a proxy
+  // (Render, Railway, Nginx, etc.) via X-Forwarded-For.
   app.set('trust proxy', 1);
 
-  // Security middleware
   app.use(helmet());
 
-  // CORS configuration
   const corsOptions = {
     origin: process.env.CLIENT_URL || '*',
     credentials: true,
@@ -28,14 +29,11 @@ const createApp = (): Application => {
   };
   app.use(cors(corsOptions));
 
-  // Body parsing middleware
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-  // Compression middleware
   app.use(compression());
 
-  // Request logging
   if (process.env.NODE_ENV === 'development') {
     app.use(morgan('dev'));
   } else {
@@ -46,16 +44,12 @@ const createApp = (): Application => {
     }));
   }
 
-  // Apply general rate limiting to all API routes
   app.use('/api/', generalLimiter);
 
-  // Static files
   app.use('/uploads', express.static(path.join(process.cwd(), 'public/uploads')));
 
-  // API routes
   app.use('/api/v1', routes);
 
-  // Root route
   app.get('/', (req, res) => {
     res.status(200).json({
       success: true,
@@ -76,10 +70,7 @@ const createApp = (): Application => {
     });
   });
 
-  // 404 handler
   app.use(notFoundHandler);
-
-  // Error handler (must be last)
   app.use(errorHandler);
 
   return app;

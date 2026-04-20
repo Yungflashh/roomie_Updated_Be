@@ -3,19 +3,23 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-// src/index.ts (Backend)
 const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
-const http_1 = __importDefault(require("http")); // <-- Make sure this is imported
+const http_1 = __importDefault(require("http"));
 const app_1 = __importDefault(require("./app"));
 const database_1 = __importDefault(require("./config/database"));
 const redis_1 = require("./config/redis");
-const socket_config_1 = require("./config/socket.config"); // <-- Import socket config
+const socket_config_1 = require("./config/socket.config");
 const logger_1 = __importDefault(require("./utils/logger"));
 const models_1 = require("./models");
 const redis_2 = __importDefault(require("./config/redis"));
 const clanJobs_1 = require("./jobs/clanJobs");
 const PORT = parseInt(process.env.PORT || '5000', 10);
+/**
+ * Clears stale duplicate-detection hashes from MongoDB and Redis.
+ * Called once at startup so stale fingerprints from previous runs don't
+ * produce false positives.
+ */
 async function clearDuplicateData() {
     try {
         await models_1.MediaHash.deleteMany({});
@@ -23,55 +27,46 @@ async function clearDuplicateData() {
         if (keys.length > 0) {
             await redis_2.default.del(keys);
         }
-        console.log('✅ Cleared duplicate detection data');
     }
     catch (error) {
-        console.error('Error clearing duplicate data:', error);
+        logger_1.default.error('Error clearing duplicate data:', error);
     }
 }
+/**
+ * Connects to MongoDB and Redis, initialises Socket.IO with the Redis adapter,
+ * starts background jobs, and begins accepting HTTP connections.
+ */
 const startServer = async () => {
     try {
-        // Connect to MongoDB
         await (0, database_1.default)();
-        // Initialize Redis
         await (0, redis_1.initRedis)();
-        // Create Express app
         const app = (0, app_1.default)();
-        // Create HTTP server (IMPORTANT: wrap express app)
         const httpServer = http_1.default.createServer(app);
-        // Initialize Socket.IO (IMPORTANT: pass httpServer, not app)
         const io = (0, socket_config_1.initializeSocket)(httpServer);
-        // Make io accessible in routes
         app.set('io', io);
-        // Initialize cron jobs
         (0, clanJobs_1.initClanJobs)();
-        // Start server - USE httpServer.listen, NOT app.listen
-        // Prevent slow requests from piling up and blocking the event loop
-        httpServer.timeout = 30000; // 30s overall request timeout
-        httpServer.keepAliveTimeout = 65000; // slightly above typical LB idle timeout
+        // 30 s overall request timeout keeps slow requests from blocking the event loop.
+        // keepAliveTimeout is set slightly above a typical load-balancer idle timeout
+        // so the LB doesn't close connections that Express still considers live.
+        httpServer.timeout = 30000;
+        httpServer.keepAliveTimeout = 65000;
         httpServer.headersTimeout = 66000;
-        // Increase backlog for high-concurrency load (default 511 is too low for 1000+ VUs)
+        // Raise the TCP backlog for high-concurrency deployments (default 511).
         httpServer.listen(PORT, '0.0.0.0', 2048, () => {
             logger_1.default.info(`
 ╔═══════════════════════════════════════════════════════╗
 ║                                                       ║
-║   🏠 ROOMIE API SERVER RUNNING                       ║
+║   ROOMIE API SERVER RUNNING                           ║
 ║                                                       ║
-║   Environment: ${process.env.NODE_ENV || 'development'}                            ║
-║   Port: ${PORT}                                       ║
+║   Environment: ${(process.env.NODE_ENV || 'development').padEnd(37)}║
+║   Port:        ${String(PORT).padEnd(37)}║
 ║   API Version: v1                                     ║
-║                                                       ║
-║   🌐 Local:   http://localhost:${PORT}               ║
-║   📱 Network: http://192.168.191.66:${PORT}          ║
-║                                                       ║
-║   🔌 WebSocket: ENABLED                              ║
 ║                                                       ║
 ╚═══════════════════════════════════════════════════════╝
       `);
         });
-        // Graceful shutdown
         const gracefulShutdown = (signal) => {
-            logger_1.default.info(`\n${signal} received. Closing server gracefully...`);
+            logger_1.default.info(`${signal} received. Closing server gracefully...`);
             io.close(() => {
                 logger_1.default.info('Socket.IO closed');
             });
@@ -80,7 +75,7 @@ const startServer = async () => {
                 process.exit(0);
             });
             setTimeout(() => {
-                logger_1.default.error('Forced server shutdown');
+                logger_1.default.error('Forced server shutdown after timeout');
                 process.exit(1);
             }, 10000);
         };
@@ -88,14 +83,13 @@ const startServer = async () => {
         process.on('SIGINT', () => gracefulShutdown('SIGINT'));
         process.on('uncaughtException', (error) => {
             logger_1.default.error('Uncaught Exception:', error);
-            // Only exit on truly fatal errors, not transient failures under load
+            // Only exit on memory exhaustion; transient errors should not bring down the server.
             if (error.message?.includes('ENOMEM') || error.message?.includes('out of memory')) {
                 process.exit(1);
             }
         });
         process.on('unhandledRejection', (reason, promise) => {
             logger_1.default.error('Unhandled Rejection at:', promise, 'reason:', reason);
-            // Log but don't crash — let the server recover
         });
     }
     catch (error) {

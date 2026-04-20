@@ -4,7 +4,7 @@ import logger from '../utils/logger';
 const connectDB = async (): Promise<void> => {
   try {
     const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/roomie';
-    
+
     await mongoose.connect(mongoURI, {
       maxPoolSize: parseInt(process.env.MONGO_POOL_SIZE || '200'),
       minPoolSize: 10,
@@ -12,7 +12,7 @@ const connectDB = async (): Promise<void> => {
       socketTimeoutMS: 60000,
     });
 
-    logger.info('✅ MongoDB connected successfully');
+    logger.info('MongoDB connected');
 
     mongoose.connection.on('error', (err) => {
       logger.error('MongoDB connection error:', err);
@@ -27,7 +27,7 @@ const connectDB = async (): Promise<void> => {
     });
 
   } catch (error) {
-    logger.error('❌ MongoDB connection failed:', error);
+    logger.error('MongoDB connection failed:', error);
     process.exit(1);
   }
 };

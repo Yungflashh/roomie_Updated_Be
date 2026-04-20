@@ -3,7 +3,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-// src/services/push.service.ts
 const expo_server_sdk_1 = require("expo-server-sdk");
 const models_1 = require("../models");
 const logger_1 = __importDefault(require("../utils/logger"));
@@ -16,14 +15,12 @@ class PushService {
      */
     async sendToUser(payload) {
         try {
-            logger_1.default.info(`🔔 [PUSH] Attempting to send to user ${payload.userId}: ${payload.title}`);
             const user = await models_1.User.findById(payload.userId).select('fcmToken').lean();
             if (!user?.fcmToken) {
-                logger_1.default.warn(`🔔 [PUSH] ❌ No push token for user ${payload.userId}, skipping push`);
+                logger_1.default.warn(`No push token for user ${payload.userId}, skipping push`);
                 return false;
             }
             const token = user.fcmToken;
-            logger_1.default.info(`🔔 [PUSH] Found token: ${token.substring(0, 30)}...`);
             // Validate it's a valid Expo push token
             if (!expo_server_sdk_1.Expo.isExpoPushToken(token)) {
                 logger_1.default.warn(`Invalid Expo push token for user ${payload.userId}: ${token}`);

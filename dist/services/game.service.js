@@ -36,7 +36,6 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-// src/services/game.service.ts - COMPLETE VERSION WITH ALL GAMES
 const mongoose_1 = __importDefault(require("mongoose"));
 const models_1 = require("../models");
 const points_service_1 = __importDefault(require("./points.service"));
@@ -1481,7 +1480,7 @@ class GameService {
                 logger_1.default.warn('Failed to submit war match result from game session:', e);
             }
         }
-        logger_1.default.info(`✅ Game session finalized with points awarded`);
+        logger_1.default.info('Game session finalized with points awarded');
     }
     async completeGameSession(sessionId) {
         const session = await models_1.GameSession.findById(sessionId)

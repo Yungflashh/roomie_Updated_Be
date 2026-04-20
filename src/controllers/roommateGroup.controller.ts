@@ -101,7 +101,7 @@ class RoommateGroupController {
 
       res.status(200).json({
         success: true,
-        message: `Welcome to ${group.name}! 🎉`,
+        message: `Welcome to ${group.name}`,
         data: { group },
       });
     } catch (error: any) {
@@ -173,7 +173,7 @@ class RoommateGroupController {
       if (accept && group) {
         res.status(200).json({
           success: true,
-          message: `Welcome to ${group.name}! 🎉`,
+          message: `Welcome to ${group.name}`,
           data: { group },
         });
       } else {
