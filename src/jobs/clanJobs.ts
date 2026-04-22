@@ -60,4 +60,3 @@ export function initClanJobs(): void {
 
   logger.info('Clan cron jobs initialized (weekly, monthly, seasonal resets, war expiry)');
 }
-
