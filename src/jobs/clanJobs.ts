@@ -63,4 +63,3 @@ export function initClanJobs(): void {
 
 
 
-
