@@ -683,8 +683,10 @@ class AuthService {
       issuer: 'https://appleid.apple.com',
     };
 
+    // Accept comma-separated list of valid bundle IDs (e.g. during bundle ID migrations)
     if (process.env.APPLE_CLIENT_ID) {
-      verifyOptions.audience = process.env.APPLE_CLIENT_ID;
+      const ids = process.env.APPLE_CLIENT_ID.split(',').map(s => s.trim());
+      verifyOptions.audience = ids.length === 1 ? ids[0] : (ids as [string, ...string[]]);
     }
 
     const payload = jwt.verify(identityToken, pem, verifyOptions) as any;

@@ -518,8 +518,10 @@ class AuthService {
             algorithms: ['RS256'],
             issuer: 'https://appleid.apple.com',
         };
+        // Accept comma-separated list of valid bundle IDs (e.g. during bundle ID migrations)
         if (process.env.APPLE_CLIENT_ID) {
-            verifyOptions.audience = process.env.APPLE_CLIENT_ID;
+            const ids = process.env.APPLE_CLIENT_ID.split(',').map(s => s.trim());
+            verifyOptions.audience = ids.length === 1 ? ids[0] : ids;
         }
         const payload = jsonwebtoken_1.default.verify(identityToken, pem, verifyOptions);
         if (!payload.sub) {
