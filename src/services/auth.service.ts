@@ -665,8 +665,10 @@ class AuthService {
    * no third-party JWT library required.
    */
   private async verifyAppleToken(identityToken: string): Promise<{ sub: string; email?: string }> {
-    const [rawHeader] = identityToken.split('.');
+    const [rawHeader, rawPayload] = identityToken.split('.');
     const header = JSON.parse(Buffer.from(rawHeader, 'base64').toString('utf8'));
+    const unverifiedPayload = JSON.parse(Buffer.from(rawPayload, 'base64url').toString('utf8'));
+    logger.info(`Apple token aud: ${JSON.stringify(unverifiedPayload.aud)}`);
 
     const { data } = await axios.get<{ keys: any[] }>('https://appleid.apple.com/auth/keys');
     const jwk = data.keys.find((k: any) => k.kid === header.kid);
