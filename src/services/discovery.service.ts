@@ -96,8 +96,8 @@ class DiscoveryService {
     // Note: passes are NOT excluded — skipped users can reappear
     const excludeIds = [
       currentUserId,
-      ...currentUser.blockedUsers.map(id => id.toString()),
-      ...currentUser.likes.map(id => id.toString()),
+      ...(currentUser.blockedUsers ?? []).map((id: any) => id.toString()),
+      ...(currentUser.likes ?? []).map((id: any) => id.toString()),
     ];
 
     // Build query
